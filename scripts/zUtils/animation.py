@@ -1,12 +1,36 @@
 from maya import cmds
-from . import api
+from . import api, attributes
+
+
+class DisableAutoKeyframe(object):
+    """
+    This context temporarily disables the auto keyframe command. If auto
+    keyframe is turned off before going into this context no changes will be
+    made.
+
+    .. highlight::
+        with DisableAutoKeyframe():
+            # code
+    """
+    def __init__(self):
+        self._state = cmds.autoKeyframe(query=True, state=True)
+
+    # ------------------------------------------------------------------------
+
+    def __enter__(self):
+        if self._state:
+            cmds.autoKeyframe(state=0)
+
+    def __exit__(self, *exc_info):
+        if self._state:
+            cmds.autoKeyframe(state=1)
 
 
 def getIncomingAnimationCurves(transforms):
     """
     Get the incoming animation curves from a list of transforms.
 
-    :param list transforms:
+    :param str/list transforms:
     :return: Incoming animation curves
     :rtype: list
     """
@@ -26,6 +50,34 @@ def getIncomingAnimationCurves(transforms):
         if not cmds.listConnections("{}.input".format(animCurve))
         and not cmds.referenceQuery(animCurve, isNodeReferenced=True)
     ]
+
+
+def getPlugFromAnimationCurves(animCurves):
+    """
+    Loop all animation curves and find the plug the output attribute connects
+    too.
+
+    :param list animCurves:
+    :return: Plugs
+    :rtype: list
+    """
+    # variables
+    plugs = []
+
+    # loop animation curves
+    for animCurve in animCurves:
+        # get connection
+        connections = cmds.listConnections(
+            "{}.output".format(animCurve),
+            plugs=True,
+            source=False,
+            destination=True,
+        ) or []
+
+        # add to plugs
+        plugs.extend(connections)
+
+    return plugs
 
 
 def getAnimationRange(animCurves):
@@ -91,89 +143,130 @@ def setAnimationStartFrame(animCurves, startFrame=1001):
     cmds.keyframe(animCurves, edit=True, relative=True, timeChange=shift)
 
 
-def setAnimationDefaultValue(animCurves):
-    """
-    Loop all animation curves and find the attribute it connects to. Query the
-    default value of that attribute and set a linear keyframe on the provided
-    frame with the default value.
-
-    :param list animCurves:
-    """
-    # loop animation curves
-    for animCurve in animCurves:
-        # get connection
-        connections = cmds.listConnections(
-            "{}.output".format(animCurve),
-            plugs=True,
-            source=False,
-            destination=True,
-        ) or []
-
-        # validate connection
-        if not connections:
-            continue
-
-        # get default value
-        node, attr = connections[0].split(".", 1)
-        default = cmds.attributeQuery(attr, node=node, listDefault=True)
-
-        # validate default
-        if not default:
-            continue
-
-        # create keyframe
-        cmds.setKeyframe(
-            animCurve,
-            value=default[0],
-            inTangentType="linear",
-            outTangentType="linear",
-        )
-
-
-def addAnimationPreRoll(animCurves, moveControl):
+def addAnimationPreRoll(container, mover):
     """
     Add a preroll animation to the provided animation curves using the
     technique described on the ziva dynamics website.
 
     Video: https://zivadynamics.com/resources/pre-roll-run-up-setup
 
-    :param list animCurves:
+    :param str container:
+    :param str mover:
     """
-    # get current time
-    currentFrame = cmds.currentTime(query=True)
+    def _setAnimPose(frame):
+        # set frame
+        cmds.currentTime(frame)
+
+        # set keyframes
+        cmds.setKeyframe(animCurves, inTangentType="linear")
+
+    def _setZeroPose(frame):
+        # set frame
+        cmds.currentTime(frame)
+
+        # set default values
+        for plug in animPlugs:
+            attributes.setDefaultValue(plug)
+
+        # set keyframes
+        cmds.setKeyframe(
+            animPlugs,
+            inTangentType="linear",
+            outTangentType="linear"
+        )
+
+    def _setMoverPose(frame, bind, anim):
+        # set frame
+        cmds.currentTime(frame)
+
+        # get attr
+        moverAttr = "{}.worldMatrix".format(mover)
+
+        # get bind and anim matrices
+        bindMatrixList = cmds.getAttr(moverAttr, time=bind)
+        bindMatrix = api.listToMatrix(bindMatrixList)
+
+        animMatrixList = cmds.getAttr(moverAttr, time=anim)
+        animMatrix = api.listToMatrix(animMatrixList)
+
+        # find best transformation matrix
+        # get forward vector from anim matrix
+        forwardVec = api.listToVector([0, 0, 1])
+        forward = forwardVec.transformAsNormal(animMatrix)
+
+        # construct direction vectors
+        y = api.listToVector([0, 1, 0])
+        x = (y ^ forward).normal()
+        z = (x ^ y).normal()
+
+        # construct position list ( keeping the bind Y and animation X and Z )
+        t = [
+            animMatrixList[12],
+            bindMatrixList[13],
+            animMatrixList[14]
+        ]
+
+        # construct mover matrix
+        moverMatrix = api.channelsToMatrix(x, y, z, t)
+        relativeMatrix = moverMatrix * bindMatrix.inverse()
+
+        # loop transforms
+        for transform in animTransforms:
+            # get connect animation curves to only keyframe necessary
+            # attributes
+            connections = getIncomingAnimationCurves(transform)
+            plugs = getPlugFromAnimationCurves(connections)
+
+            # get transformation matrix
+            transformAttr = "{}.worldMatrix".format(transform)
+            transformMatrixList = cmds.getAttr(transformAttr, time=bind)
+            transformMatrix = api.listToMatrix(transformMatrixList)
+
+            # set new position
+            positionMatrix = api.matrixToList(transformMatrix * relativeMatrix)
+            cmds.xform(transform, ws=True, matrix=positionMatrix)
+
+            # set keyframes
+            cmds.setKeyframe(
+                plugs,
+                inTangentType="linear",
+                outTangentType="linear"
+            )
+
+    # variables
+    animPlugs = []
+    animCurves = []
+    animTransforms = []
+
+    # process container contents
+    children = cmds.listRelatives(container, allDescendents=True) or []
+    children.insert(0, container)
+
+    # loop container contents
+    for child in children:
+        # get animation curves
+        curves = getIncomingAnimationCurves(child)
+
+        # validate curves
+        if curves:
+            # get plugs
+            plugs = getPlugFromAnimationCurves(curves)
+
+            # populate anim variables
+            animPlugs.extend(plugs)
+            animCurves.extend(curves)
+            animTransforms.append(child)
 
     # get animation range
-    animStartFrame, _ = getAnimationRange(animCurves)
+    animPoseFrame, _ = getAnimationRange(animCurves)
+    zeroPoseFrame = animPoseFrame - 11
+    moverPoseFrame = animPoseFrame - 10
 
-    # get frames
-    zeroPoseFrame = animStartFrame - 11
-    movePoseFrame = animStartFrame - 10
+    # set keyframes
+    with DisableAutoKeyframe():
+        _setAnimPose(animPoseFrame)
+        _setZeroPose(zeroPoseFrame)
+        _setMoverPose(moverPoseFrame, zeroPoseFrame, animPoseFrame)
 
-    # set start frame keyframe to make incoming tangent linear
-    cmds.currentTime(animStartFrame)
-    cmds.setKeyframe(animCurves, inTangentType="linear")
-
-    # get current move control position
-    pos = cmds.xform(moveControl, query=True, os=True, t=True)
-    forward = api.getRotationAxis(moveControl)
-    y = api.listToVector([0, 1, 0])
-    x = (y ^ forward).normal()
-    z = (x ^ y).normal()
-
-    # create matrix
-    matrix = api.channelsToMatrix(x=x, y=y, z=z)
-
-    # set move pose
-    cmds.currentTime(movePoseFrame)
-    setAnimationDefaultValue(animCurves)
-
-    cmds.xform(moveControl, ws=True, matrix=api.matrixToList(matrix))
-    cmds.xform(moveControl, os=True, t=[pos[0], 0, pos[2]])
-    cmds.setKeyframe(moveControl)
-
-    # set zero pose
+    # set to start of preroll
     cmds.currentTime(zeroPoseFrame)
-    setAnimationDefaultValue(animCurves)
-
-    # reset current time
-    cmds.currentTime(currentFrame)

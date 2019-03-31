@@ -49,39 +49,6 @@ def listToVector(l):
     """
     return OpenMaya.MVector(*l)
 
-
-# ----------------------------------------------------------------------------
-
-
-def getMatrix(node):
-    """
-    :param str node:
-    :return: Matrix
-    :rtype: MMatrix
-    """
-    return toMDagPath(node).inclusiveMatrix()
-
-
-def getRotationAxis(node, axis=None):
-    """
-    Transform an axis with the node's inclusive matrix. The axis consists out
-    of a list with 3 values.
-
-    :param str node:
-    :param list axis:
-    :return: MVector
-    :rtype: MVector
-    """
-    # construct axis
-    axis = axis if axis is not None else [0, 0, 1]
-    offset = OpenMaya.MVector(*axis)
-
-    # get matrix from node
-    matrix = getMatrix(node)
-
-    return offset.transformAsNormal(matrix)
-
-
 # ----------------------------------------------------------------------------
 
 
