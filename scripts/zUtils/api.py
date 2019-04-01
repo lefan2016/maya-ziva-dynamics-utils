@@ -1,37 +1,6 @@
 from maya import OpenMaya
 
 
-def toMObject(node):
-    """
-    :param str node:
-    :return: toMObject
-    :rtype: toMObject
-    """
-    selectionList = OpenMaya.MSelectionList()
-    selectionList.add(node)
-    obj = OpenMaya.MObject()
-    selectionList.getDependNode(0, obj)
-
-    return obj
-
-
-def toMDagPath(node):
-    """
-    :param str node:
-    :return: MDagPath
-    :rtype: MDagPath
-    """
-    selectionList = OpenMaya.MSelectionList()
-    selectionList.add(node)
-    dag = OpenMaya.MDagPath()
-    selectionList.getDagPath(0, dag)
-
-    return dag
-
-
-# ----------------------------------------------------------------------------
-
-
 def vectorToList(vector):
     """
     :param MVector vector:

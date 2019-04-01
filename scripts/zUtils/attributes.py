@@ -19,3 +19,13 @@ def setDefaultValue(plug):
 
     # set default
     cmds.setAttr(plug, default[0])
+
+
+def getPlug(node, attr):
+    """
+    :param str node:
+    :param str attr:
+    :return: Plug
+    :rtype: str
+    """
+    return "{}.{}".format(node, attr)

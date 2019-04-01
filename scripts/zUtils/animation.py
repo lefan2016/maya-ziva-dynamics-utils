@@ -1,29 +1,15 @@
 from maya import cmds
+from collections import OrderedDict
 from . import api, attributes
 
 
-class DisableAutoKeyframe(object):
-    """
-    This context temporarily disables the auto keyframe command. If auto
-    keyframe is turned off before going into this context no changes will be
-    made.
+# ----------------------------------------------------------------------------
 
-    .. highlight::
-        with DisableAutoKeyframe():
-            # code
-    """
-    def __init__(self):
-        self._state = cmds.autoKeyframe(query=True, state=True)
 
-    # ------------------------------------------------------------------------
+SOLVER_PARENT = "solver_parent"
 
-    def __enter__(self):
-        if self._state:
-            cmds.autoKeyframe(state=0)
 
-    def __exit__(self, *exc_info):
-        if self._state:
-            cmds.autoKeyframe(state=1)
+# ----------------------------------------------------------------------------
 
 
 def getIncomingAnimationCurves(transforms):
@@ -125,148 +111,462 @@ def getAnimationRange(animCurves):
     return [min(frames), max(frames)]
 
 
-def setAnimationStartFrame(animCurves, startFrame=1001):
+class DisableAutoKeyframe(object):
     """
-    Shift all of the animation curves to make sure the first keyframe found
-    from checking all of the animation curves starts on the provided frame.
+    This context temporarily disables the auto keyframe command. If auto
+    keyframe is turned off before going into this context no changes will be
+    made.
 
-    :param list animCurves:
-    :param float/int startFrame:
+    .. highlight::
+        with DisableAutoKeyframe:
+            # code
     """
-    # get animation range
-    animStartFrame, _ = getAnimationRange(animCurves)
+    def __init__(self):
+        self._state = cmds.autoKeyframe(query=True, state=True)
 
-    # get shift amount
-    shift = startFrame - animStartFrame
+    # ------------------------------------------------------------------------
 
-    # shift animation curves
-    cmds.keyframe(animCurves, edit=True, relative=True, timeChange=shift)
+    def __enter__(self):
+        if self._state:
+            cmds.autoKeyframe(state=0)
+
+    def __exit__(self, *exc_info):
+        if self._state:
+            cmds.autoKeyframe(state=1)
 
 
-def addAnimationPreRoll(container, mover):
-    """
-    Add a preroll animation to the provided animation curves using the
-    technique described on the ziva dynamics website.
+class AnimationExport(object):
+    def __init__(self, container=None, mover=None, exporter=None):
+        # define variables
+        self._container = None
+        self._mover = None
+        self._exporter = None
+        self._solver = None
+        self._solverName = "solver_parent_grp"
 
-    Video: https://zivadynamics.com/resources/pre-roll-run-up-setup
+        self._animationPlugs = []
+        self._animationNodes = []
+        self._animationCurves = []
 
-    :param str container:
-    :param str mover:
-    """
-    def _setAnimPose(frame):
+        self._animationStartFrame = None
+        self._animationEndFrame = None
+
+        # set variables
+        self.container = container
+        self.mover = mover
+        self.exporter = exporter
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def container(self):
+        """
+        The container node is a node in the hierarchy of which either itself
+        or its children contain all of the animation curve that move the
+        character. This can be a control rig or even a skeleton hierarchy.
+
+        :param str container:
+        :return: Container node
+        :rtype: str
+        """
+        return self._container
+
+    @container.setter
+    def container(self, container):
+        # set container
+        self._container = container
+
+        # validate container
+        if not container:
+            self._animationPlugs = []
+            self._animationNodes = []
+            self._animationCurves = []
+
+            self._animationStartFrame = None
+            self._animationEndFrame = None
+
+            return
+
+        # get content
+        nodes = self._getTransformContent(container)
+
+        # loop nodes
+        for node in nodes:
+            # get animation curves
+            curves = getIncomingAnimationCurves(node)
+
+            # validate curves
+            if curves:
+                # get plugs
+                plugs = getPlugFromAnimationCurves(curves)
+
+                # populate animation variables
+                self._animationPlugs.extend(plugs)
+                self._animationNodes.append(node)
+                self._animationCurves.extend(curves)
+
+        # set animation range
+        self._animationStartFrame, self._animationEndFrame = \
+            getAnimationRange(self._animationCurves)
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def mover(self):
+        """
+        The mover node is the node that indicates the one frame move in the
+        pre roll animation. Any other animated transforms found will be moved
+        relative to the mover node.
+
+        :param str mover:
+        :return: Mover node
+        :rtype: str
+        """
+        return self._mover
+
+    @mover.setter
+    def mover(self, mover):
+        self._mover = mover
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def exporter(self):
+        """
+        The exporter node is the node that indicates which group and its
+        children to export as an alembic cache.
+
+        :param str exporter:
+        :return: Parent node to export
+        :rtype: str
+        """
+        return self._exporter
+
+    @exporter.setter
+    def exporter(self, exporter):
+        # set exporter
+        self._exporter = exporter
+
+        # validate exporter
+        if not exporter:
+            self._solver = None
+            return
+
+        # find/create solver
+        children = cmds.listRelatives(exporter, children=True) or []
+        children = [child.split("|")[-1] for child in children]
+
+        if SOLVER_PARENT in children:
+            self._solver = "{}|{}".format(exporter, SOLVER_PARENT)
+        else:
+            self._solver = cmds.group(
+                empty=True,
+                parent=self.exporter,
+                name=SOLVER_PARENT
+            )
+
+    # ------------------------------------------------------------------------
+
+    def _getTransformContent(self, transform):
+        """
+        Get all of the children of the transform including itself.
+        The content list is sorted based on hierarchy to reduce the errors in
+        settings transforms.
+
+        :return: Container contents
+        :rtype: list
+        """
+        # get all of the container children
+        children = cmds.listRelatives(
+            transform,
+            allDescendents=True,
+            fullPath=True
+        ) or []
+
+        # add container itself
+        children.append(transform)
+
+        # sort container based on hierarchy
+        children.sort(key=lambda x: len(x.split("|")))
+
+        return children
+
+    # ------------------------------------------------------------------------
+
+    def _getWorldMatrix(self, node, time=None):
+        """
+        :param str node:
+        :param int/float/None time:
+        :return: World matrix of node at given or current time
+        :rtype: list
+        """
+        plug = attributes.getPlug(node, "worldMatrix[0]")
+        arguments = {"time": time} if time else {}
+        return cmds.getAttr(plug, **arguments)
+
+    def _getMatrixDifference(self, sourceMatrix, targetMatrix, start, end):
+        """
+        :param list sourceMatrix:
+        :param list targetMatrix:
+        :param int start:
+        :param int end:
+        :return: Matrix difference
+        :rtype: float
+        """
+        return sum(
+            [
+                a1 - a2
+                for a1, a2 in zip(
+                    sourceMatrix[start:end],
+                    targetMatrix[start:end]
+                )
+            ]
+        )
+
+    # ------------------------------------------------------------------------
+
+    def _getMoverRotationVectors(self, zeroMatrix, animMatrix):
+        """
+        Get the mover rotation vectors with the constraint that the rotation
+        vectors are only allowed to be rotating the mover in the Y axis
+        relative to its zero pose.
+
+        :param MMatrix zeroMatrix:
+        :param MMatrix animMatrix:
+        :return: Rotation Vectors
+        :rtype: list
+        """
+        # get forward vector from anim matrix
+        forward = api.listToVector([0, 0, 1])
+        forward = forward.transformAsNormal(animMatrix)
+
+        # get up vector from zero matrix
+        y = api.listToVector([0, 1, 0])
+        y = y.transformAsNormal(zeroMatrix)
+
+        # construct direction vectors
+        x = (y ^ forward).normal()
+        z = (x ^ y).normal()
+
+        return [x, y, z]
+
+    def _getMoverTranslation(self, zeroMatrix, animMatrix):
+        """
+        Get the mover relative position constrained in the Y axis based on
+        the zero position.
+
+        :param list zeroMatrix:
+        :param list animMatrix:
+        :return: Position
+        :rtype: list
+        """
+        return [animMatrix[12], zeroMatrix[13], animMatrix[14]]
+
+    # ------------------------------------------------------------------------
+
+    def _splitPlugsByChannel(self, plugs):
+        """
+        :param list plugs:
+        :return: Split plugs
+        :rtype: dict
+        """
+        data = {}
+        channels = ["translate", "rotate", "scale"]
+
+        for plug in plugs:
+            for channel in channels:
+                if plug.count(channel):
+                    if not channel in data.keys():
+                        data[channel] = []
+                    data[channel].append(plug)
+
+        return data
+
+    # ------------------------------------------------------------------------
+
+    def _setAnimKeyframes(self):
+        """
+        The animation pose is already keyframed, as it is the start of all of
+        the animation. The reason for keying all of the curves again is to
+        make sure an actual key is set at the start frame which doesn't have
+        to be a given. The other reason is to make sure the in tangent type is
+        set to linear to make sure the pre roll blend is linear.
+        """
         # set frame
-        cmds.currentTime(frame)
+        cmds.currentTime(self._animationStartFrame)
 
         # set keyframes
-        cmds.setKeyframe(animCurves, inTangentType="linear")
+        cmds.setKeyframe(self._animationCurves, inTangentType="linear")
 
-    def _setZeroPose(frame):
+    def _setZeroKeyframes(self):
+        """
+        The zero pose is retrieved by changing all of the attributes back to
+        its default value.
+        """
         # set frame
-        cmds.currentTime(frame)
+        cmds.currentTime(self._zeroFrame)
 
         # set default values
-        for plug in animPlugs:
+        for plug in self._animationPlugs:
             attributes.setDefaultValue(plug)
 
         # set keyframes
         cmds.setKeyframe(
-            animPlugs,
+            self._animationPlugs + [self._solver],
             inTangentType="linear",
             outTangentType="linear"
         )
 
-    def _setMoverPose(frame, bind, anim):
-        # set frame
-        cmds.currentTime(frame)
+    def _setMoverKeyframes(self, maxInterations):
+        """
+        The mover pose is the closest the zero pose can get to the animation
+        pose by just moving the mover node. The mover node is allowed to be
+        rotated in Y and moved in X and Z.
 
-        # get attr
-        moverAttr = "{}.worldMatrix".format(mover)
+        :param int maxInterations:
+        """
+        # variable
+        i = 0
+
+        # set frame
+        cmds.currentTime(self._moveFrame)
 
         # get bind and anim matrices
-        bindMatrixList = cmds.getAttr(moverAttr, time=bind)
-        bindMatrix = api.listToMatrix(bindMatrixList)
+        zeroMatrixList = self._getWorldMatrix(self.mover, self._zeroFrame)
+        zeroMatrix = api.listToMatrix(zeroMatrixList)
 
-        animMatrixList = cmds.getAttr(moverAttr, time=anim)
+        animMatrixList = self._getWorldMatrix(self.mover, self._animationStartFrame)
         animMatrix = api.listToMatrix(animMatrixList)
 
-        # find best transformation matrix
-        # get forward vector from anim matrix
-        forwardVec = api.listToVector([0, 0, 1])
-        forward = forwardVec.transformAsNormal(animMatrix)
-
-        # construct direction vectors
-        y = api.listToVector([0, 1, 0])
-        x = (y ^ forward).normal()
-        z = (x ^ y).normal()
-
-        # construct position list ( keeping the bind Y and animation X and Z )
-        t = [
-            animMatrixList[12],
-            bindMatrixList[13],
-            animMatrixList[14]
-        ]
+        # construct mover matrix
+        # get rotation vectors and translation
+        x, y, z = self._getMoverRotationVectors(zeroMatrix, animMatrix)
+        t = self._getMoverTranslation(zeroMatrixList, animMatrixList)
 
         # construct mover matrix
         moverMatrix = api.channelsToMatrix(x, y, z, t)
-        relativeMatrix = moverMatrix * bindMatrix.inverse()
+        relativeMatrix = moverMatrix * zeroMatrix.inverse()
 
-        # loop transforms
-        for transform in animTransforms:
-            # get connect animation curves to only keyframe necessary
-            # attributes
-            connections = getIncomingAnimationCurves(transform)
-            plugs = getPlugFromAnimationCurves(connections)
-
+        # store world positions of all of the transforms, as controls can
+        # influence each other it is important to check if the set transform
+        # is set to the correct position.
+        transformData = OrderedDict()
+        for transform in self._animationNodes + [self._solver]:
             # get transformation matrix
-            transformAttr = "{}.worldMatrix".format(transform)
-            transformMatrixList = cmds.getAttr(transformAttr, time=bind)
-            transformMatrix = api.listToMatrix(transformMatrixList)
+            zeroMatrixList = self._getWorldMatrix(transform, self._zeroFrame)
+            zeroMatrix = api.listToMatrix(zeroMatrixList)
 
-            # set new position
-            positionMatrix = api.matrixToList(transformMatrix * relativeMatrix)
-            cmds.xform(transform, ws=True, matrix=positionMatrix)
+            # get transforms world position as matrix
+            transformMatrix = api.matrixToList(zeroMatrix * relativeMatrix)
 
-            # set keyframes
-            cmds.setKeyframe(
-                plugs,
-                inTangentType="linear",
-                outTangentType="linear"
-            )
+            # store data
+            transformData[transform] = transformMatrix
 
-    # variables
-    animPlugs = []
-    animCurves = []
-    animTransforms = []
+        # set positions
+        while transformData:
+            # set matrices
+            for transform, transformMatrix in transformData.iteritems():
+                cmds.xform(transform, ws=True, matrix=transformMatrix)
 
-    # process container contents
-    children = cmds.listRelatives(container, allDescendents=True) or []
-    children.insert(0, container)
+            # validate matrices
+            for transform, transformMatrix in transformData.iteritems():
+                # get connect animation curves to only keyframe necessary
+                # attributes
+                connections = getIncomingAnimationCurves(transform)
+                plugs = getPlugFromAnimationCurves(connections)
+                plugsData = self._splitPlugsByChannel(plugs)
 
-    # loop container contents
-    for child in children:
-        # get animation curves
-        curves = getIncomingAnimationCurves(child)
+                # get current matrix
+                currentMatrix = self._getWorldMatrix(transform)
 
-        # validate curves
-        if curves:
-            # get plugs
-            plugs = getPlugFromAnimationCurves(curves)
+                # get matrix range
+                # exclude rotations if no rotation plugs are found
+                start = 0 if plugsData.get("rotate") else 12
+                end = 16 if plugsData.get("rotate") else 15
 
-            # populate anim variables
-            animPlugs.extend(plugs)
-            animCurves.extend(curves)
-            animTransforms.append(child)
+                # get numeric difference value between matrices
+                difference = self._getMatrixDifference(
+                    transformMatrix,
+                    currentMatrix,
+                    start,
+                    end
+                )
 
-    # get animation range
-    animPoseFrame, _ = getAnimationRange(animCurves)
-    zeroPoseFrame = animPoseFrame - 11
-    moverPoseFrame = animPoseFrame - 10
+                # validate difference
+                if difference > 0.0001:
+                    continue
 
-    # set keyframes
-    with DisableAutoKeyframe():
-        _setAnimPose(animPoseFrame)
-        _setZeroPose(zeroPoseFrame)
-        _setMoverPose(moverPoseFrame, zeroPoseFrame, animPoseFrame)
+                # set keyframes
+                cmds.setKeyframe(
+                    plugs,
+                    inTangentType="linear",
+                    outTangentType="linear"
+                )
 
-    # set to start of preroll
-    cmds.currentTime(zeroPoseFrame)
+                # remove from dict
+                del transformData[transform]
+
+            # update iteration
+            i += 1
+
+            # handle max iterations to not get stuck in while loop when
+            # transforms cannot be resolved
+            if i == maxInterations:
+                break
+
+    # ------------------------------------------------------------------------
+
+    def setStartFrame(self, startFrame=1001):
+        """
+        Shift all of the animation curves so the animation starts at the
+        provided frame.
+
+        :param int/float startFrame:
+        :raise ValueError: No animation curves found
+        """
+        # validate animation curves
+        if not self._animationCurves:
+            raise ValueError("No animation curves found to shift!")
+
+        # get animation range
+        startFrameAnim, _ = getAnimationRange(self._animationCurves)
+
+        # get shift amount
+        shift = startFrame - startFrameAnim
+
+        # shift animation curves
+        cmds.keyframe(
+            self._animationCurves,
+            edit=True,
+            relative=True,
+            timeChange=shift
+        )
+
+        # set animation range
+        self._animationStartFrame, self._animationEndFrame = \
+            getAnimationRange(self._animationCurves)
+
+    def addPreRoll(self, transitionFrames=10, maxIterations=10):
+        """
+        This function will allow you to add a pre roll animation before the`
+        existing animation. This pre roll animation follows the technique
+        described on the ziva dynamics website. There is a one frame jump
+        in which the solver needs to move too. The duration of the transition
+        between poses can be adjusted. The jump frame will be as close as
+        possible to the first animation frame.
+
+        :param int transitionFrames:
+        :param int maxIterations:
+        """
+        # get key frame values
+        self._moveFrame = self._animationStartFrame - transitionFrames
+        self._zeroFrame = self._moveFrame - 1
+
+        # set keyframes
+        with DisableAutoKeyframe():
+            self._setAnimKeyframes()
+            self._setZeroKeyframes()
+            self._setMoverKeyframes(maxIterations)
+
+        # set current frame to zero frame
+        cmds.currentTime(self._zeroFrame)
