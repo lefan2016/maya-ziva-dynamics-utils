@@ -151,6 +151,8 @@ class AnimationExport(object):
         self._animationStartFrame = None
         self._animationEndFrame = None
 
+        self._additionalKeyframes = {}
+
         # set variables
         self.container = container
         self.mover = mover
@@ -264,6 +266,36 @@ class AnimationExport(object):
                 parent=self.exporter,
                 name=SOLVER_PARENT
             )
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def additionalKeyframes(self):
+        """
+        Additional keyframes are in dictionary format and the keys are the
+        plugs and the values the values. Sometimes it can be your additional
+        keys are either not key framed by default or don't have the correct
+        default value. For example is better to calculate the pre roll using
+        FK systems. Additional keyframes can be used to force a certain state.
+
+        :return: Additional keyframes
+        :rtype: dict
+        """
+        return self._additionalKeyframes
+
+    def addAdditionalKeyframe(self, plug, value):
+        """
+        :param str plug:
+        :param int/float value:
+        """
+        self.additionalKeyframes[plug] = value
+
+    def removeAdditionalKeyframe(self, plug):
+        """
+        :param str plug:
+        """
+        if plug in self.additionalKeyframes.keys():
+            del self.additionalKeyframes[plug]
 
     # ------------------------------------------------------------------------
 
@@ -396,7 +428,10 @@ class AnimationExport(object):
         cmds.currentTime(self._animationStartFrame)
 
         # set keyframes
-        cmds.setKeyframe(self._animationCurves, inTangentType="linear")
+        cmds.setKeyframe(
+            self._animationCurves + self.additionalKeyframes.keys(),
+            inTangentType="linear"
+        )
 
     def _setZeroKeyframes(self):
         """
@@ -410,9 +445,19 @@ class AnimationExport(object):
         for plug in self._animationPlugs:
             attributes.setDefaultValue(plug)
 
+        # set additional keyframe values
+        for plug, value in self.additionalKeyframes.iteritems():
+            cmds.setAttr(plug, value)
+
+        # get nodes
+        nodes = []
+        nodes.append(self._solver)
+        nodes.extend(self._animationPlugs)
+        nodes.extend(self.additionalKeyframes.keys())
+
         # set keyframes
         cmds.setKeyframe(
-            self._animationPlugs + [self._solver],
+            nodes,
             inTangentType="linear",
             outTangentType="linear"
         )
@@ -513,6 +558,18 @@ class AnimationExport(object):
             # transforms cannot be resolved
             if i == maxInterations:
                 break
+
+        if self.additionalKeyframes:
+            # set additional keyframe values
+            for plug, value in self.additionalKeyframes.iteritems():
+                cmds.setAttr(plug, value)
+
+            # set keyframes
+            cmds.setKeyframe(
+                self.additionalKeyframes.keys(),
+                inTangentType="linear",
+                outTangentType="linear"
+            )
 
     # ------------------------------------------------------------------------
 
