@@ -1,5 +1,5 @@
 from maya import cmds
-from . import path, attributes
+from . import path, transforms, attributes
 from .animation import Animation
 
 
@@ -8,6 +8,11 @@ from .animation import Animation
 
 ZIVA_MUSCLE_RIG = "__ziva_muscle_rig"
 ZIVA_SOLVER = "__ziva_solver"
+ZIVA_SOLVER_ATTRIBUTES = [
+    "tx", "ty", "tz",
+    "rx", "ry", "rz",
+    "sx", "sy", "sz",
+]
 
 
 # ----------------------------------------------------------------------------
@@ -150,6 +155,20 @@ class MuscleRig(object):
             if blendshapes:
                 cmds.delete(blendshapes)
 
+        # remove animation curves from solver
+        for attr in ZIVA_SOLVER_ATTRIBUTES:
+            plug = attributes.getPlug(self.solver, attr)
+            anim = cmds.listConnections(
+                plug,
+                type="animCurve",
+                source=True,
+                destination=False,
+                skipConversionNodes=True
+            )
+
+            if anim:
+                cmds.delete(anim)
+
     def applyAnimation(self, animation):
         """
         :param AnimationExport animation:
@@ -180,4 +199,25 @@ class MuscleRig(object):
                 frontOfChain=True,
                 weight=[0, 1],
                 origin="world"
+            )
+
+        # animate solver
+        plugs = [
+            attributes.getPlug(self.solver, attr)
+            for attr in ZIVA_SOLVER_ATTRIBUTES
+        ]
+
+        for frame in [animation.startFrame, animation.startFrame+1]:
+            # set time
+            cmds.currentTime(frame)
+
+            # position solver
+            matrix = transforms.getWorldMatrixAtTime(animation.solver)
+            cmds.xform(self.solver, ws=True, matrix=matrix)
+
+            # set keyframes
+            cmds.setKeyframe(
+                plugs,
+                inTangentType="linear",
+                outTangentType="linear"
             )

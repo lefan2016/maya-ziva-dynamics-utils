@@ -1,6 +1,6 @@
 from maya import cmds
 from collections import OrderedDict
-from . import api, attributes, decorators
+from . import api, transforms, attributes, decorators
 
 
 # ----------------------------------------------------------------------------
@@ -220,6 +220,24 @@ class Animation(object):
     # ------------------------------------------------------------------------
 
     @property
+    def solver(self):
+        """
+        The solver parent group is used to drive the ziva solver with the
+        snapping of the character created in the pre roll animation.
+
+        :return: Solver parent
+        :rtype: str/None
+        """
+        # the reason for looping through it's children rather than relying on
+        # a link is that when exporting an alembic this link attribute
+        # connection is not respected.
+        for child in cmds.listRelatives(self.root, children=True):
+            if cmds.objExists(attributes.getPlug(child, ZIVA_SOLVER_PARENT)):
+                return child
+
+    # ------------------------------------------------------------------------
+
+    @property
     def startFrame(self):
         """
         :param int/float value:
@@ -344,22 +362,6 @@ class AnimationExport(Animation):
         self._updateAnimationData()
 
     # ------------------------------------------------------------------------
-
-    @property
-    def solver(self):
-        """
-        The solver parent group is used to drive the ziva solver with the
-        snapping of the character created in the pre roll animation.
-
-        :return: Solver parent
-        :rtype: str/None
-        """
-        # the reason for looping through it's children rather than relying on
-        # a link is that when exporting an alembic this link attribute
-        # connection is not respected.
-        for child in cmds.listRelatives(self.root, children=True):
-            if cmds.objExists(attributes.getPlug(child, ZIVA_SOLVER_PARENT)):
-                return child
 
     @decorators.preserveSelection
     def _createSolverParent(self):
@@ -497,29 +499,6 @@ class AnimationExport(Animation):
 
     # ------------------------------------------------------------------------
 
-    def _storeAnimationStartFrame(self, value):
-        """
-        :param int/float value:
-        """
-        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_START)
-        cmds.setAttr(plug, value)
-
-    def _storeAnimationEndFrame(self, value):
-        """
-        :param int/float value:
-        """
-        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_END)
-        cmds.setAttr(plug, value)
-
-    def _storeAnimationTransitionFrames(self, value):
-        """
-        :param int/float value:
-        """
-        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_TRANSITION)
-        cmds.setAttr(plug, value)
-
-    # ------------------------------------------------------------------------
-
     def _getTransformContent(self, transform):
         """
         Get all of the children of the transform including itself.
@@ -545,17 +524,6 @@ class AnimationExport(Animation):
         return children
 
     # ------------------------------------------------------------------------
-
-    def _getWorldMatrix(self, node, time=None):
-        """
-        :param str node:
-        :param int/float/None time:
-        :return: World matrix of node at given or current time
-        :rtype: list
-        """
-        plug = attributes.getPlug(node, "worldMatrix[0]")
-        arguments = {"time": time} if time else {}
-        return cmds.getAttr(plug, **arguments)
 
     def _getMatrixDifference(self, sourceMatrix, targetMatrix, start, end):
         """
@@ -698,10 +666,16 @@ class AnimationExport(Animation):
         cmds.currentTime(self._moveFrame)
 
         # get bind and anim matrices
-        zeroMatrixList = self._getWorldMatrix(self.mover, self._zeroFrame)
+        zeroMatrixList = transforms.getWorldMatrixAtTime(
+            self.mover,
+            self._zeroFrame
+        )
         zeroMatrix = api.listToMatrix(zeroMatrixList)
 
-        animMatrixList = self._getWorldMatrix(self.mover, self.startFrame)
+        animMatrixList = transforms.getWorldMatrixAtTime(
+            self.mover,
+            self.startFrame
+        )
         animMatrix = api.listToMatrix(animMatrixList)
 
         # construct mover matrix
@@ -719,7 +693,10 @@ class AnimationExport(Animation):
         transformData = OrderedDict()
         for transform in self._animationNodes + [self.solver]:
             # get transformation matrix
-            zeroMatrixList = self._getWorldMatrix(transform, self._zeroFrame)
+            zeroMatrixList = transforms.getWorldMatrixAtTime(
+                transform,
+                self._zeroFrame
+            )
             zeroMatrix = api.listToMatrix(zeroMatrixList)
 
             # get transforms world position as matrix
@@ -743,7 +720,7 @@ class AnimationExport(Animation):
                 plugsData = self._splitPlugsByChannel(plugs)
 
                 # get current matrix
-                currentMatrix = self._getWorldMatrix(transform)
+                currentMatrix = transforms.getWorldMatrixAtTime(transform)
 
                 # get matrix range
                 # exclude rotations if no rotation plugs are found
@@ -868,8 +845,8 @@ class AnimationExport(Animation):
         start, end = getAnimationRange(self._animationCurves)
 
         # store frame range
-        self._storeAnimationStartFrame(start)
-        self._storeAnimationEndFrame(end)
+        self.startFrame = start
+        self.endFrame = end
 
         # construct attributes
         attrs = [
@@ -898,6 +875,9 @@ class AnimationExport(Animation):
                 "-file '{}'".format(output)
             ]
         )
+
+        # debug
+        print("DEBUG: AbcExportCommand | {}".format(cmd))
 
         # execute command
         cmds.AbcExport(j=cmd)
