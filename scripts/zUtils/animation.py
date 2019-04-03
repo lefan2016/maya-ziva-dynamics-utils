@@ -1,12 +1,19 @@
 from maya import cmds
 from collections import OrderedDict
-from . import api, attributes
+from . import api, attributes, decorators
 
 
 # ----------------------------------------------------------------------------
 
 
-SOLVER_PARENT = "solver_parent"
+ZIVA_ANIMATION = "__ziva_animation"
+ZIVA_ANIMATION_START = "__ziva_animation_start"
+ZIVA_ANIMATION_END = "__ziva_animation_end"
+ZIVA_ANIMATION_TRANSITION = "__ziva_animation_transition"
+ZIVA_ANIMATION_CONTAINER = "__ziva_animation_container"
+ZIVA_ANIMATION_MOVER = "__ziva_animation_mover"
+ZIVA_SOLVER_PARENT = "__ziva_solver_parent"
+
 
 
 # ----------------------------------------------------------------------------
@@ -135,28 +142,167 @@ class DisableAutoKeyframe(object):
             cmds.autoKeyframe(state=1)
 
 
-class AnimationExport(object):
-    def __init__(self, container=None, mover=None, exporter=None):
+class Animation(object):
+    def __init__(self, root, character=None):
         # define variables
-        self._container = None
-        self._mover = None
-        self._exporter = None
-        self._solver = None
-        self._solverName = "solver_parent_grp"
+        self._root = root
 
+        # validate character
+        if not character and not self.character:
+            raise RuntimeError("Declare the 'character' variable!")
+
+        if self.character is None and character:
+            # create export tags
+            attributes.createTag(self.root, ZIVA_ANIMATION, character)
+
+            # create animation tags
+            attributes.createTag(self.root, ZIVA_ANIMATION_START, 0.0)
+            attributes.createTag(self.root, ZIVA_ANIMATION_END, 0.0)
+            attributes.createTag(self.root, ZIVA_ANIMATION_TRANSITION, 0.0)
+
+    # ------------------------------------------------------------------------
+
+    @classmethod
+    def getAnimationsFromScene(cls):
+        """
+        Loop over all transforms and that contain an export animation tag.
+        Read the value of this tag and add it into a dictionary.
+
+        :return: Exported animation from current scene
+        :rtype: dict
+        """
+        # data variable
+        data = {}
+
+        # loop transforms
+        for node in cmds.ls(transforms=True):
+            # get plug
+            plug = attributes.getPlug(node, ZIVA_ANIMATION)
+
+            # validate plug
+            if cmds.objExists(plug):
+                # get character
+                character = cmds.getAttr(plug)
+
+                # add character to dictionary
+                if character not in data.keys():
+                    data[character] = []
+
+                # add animation to dictionary
+                data[character].append(cls(node, character))
+
+        return data
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def character(self):
+        """
+        The character name gets stored throughout the importing and exporting
+        process. It is the value that links an import and export.
+
+        :return: Character name
+        :rtype: str
+        """
+        return attributes.getTag(self.root, ZIVA_ANIMATION)
+
+    @property
+    def root(self):
+        """
+        The root node is the node that indicates the root of the animation
+        node. Either in import or export mode.
+
+        :return: Root node
+        :rtype: str
+        """
+        return self._root
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def startFrame(self):
+        """
+        :param int/float value:
+        :return: Animation start frame
+        :rtype: int/float
+        """
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_START)
+        return cmds.getAttr(plug)
+
+    @startFrame.setter
+    def startFrame(self, value):
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_START)
+        cmds.setAttr(plug, value)
+
+    @property
+    def endFrame(self):
+        """
+        :param int/float value:
+        :return: Animation end frame
+        :rtype: int/float
+        """
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_END)
+        return cmds.getAttr(plug)
+
+    @endFrame.setter
+    def endFrame(self, value):
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_END)
+        cmds.setAttr(plug, value)
+
+    @property
+    def transitionFrames(self):
+        """
+        :param int/float value:
+        :return: Animation transition frames
+        :rtype: int/float
+        """
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_TRANSITION)
+        return cmds.getAttr(plug)
+
+    @transitionFrames.setter
+    def transitionFrames(self, value):
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_TRANSITION)
+        cmds.setAttr(plug, value)
+
+
+class AnimationExport(Animation):
+    def __init__(self, root, character=None, container=None, mover=None):
+        super(AnimationExport, self).__init__(root, character)
+
+        # variables
         self._animationPlugs = []
         self._animationNodes = []
         self._animationCurves = []
-
-        self._animationStartFrame = None
-        self._animationEndFrame = None
-
         self._additionalKeyframes = {}
 
-        # set variables
-        self.container = container
-        self.mover = mover
-        self.exporter = exporter
+        # validate container
+        if not container and not self.container:
+            raise RuntimeError("Declare the 'container' variable!")
+
+        # validate mover
+        if not mover and not self.mover:
+            raise RuntimeError("Declare the 'mover' variable!")
+
+        # set character and root if declared
+        if character:
+            attributes.createTag(self.root, ZIVA_ANIMATION, character)
+
+            # create animation tags
+            attributes.createTag(self.root, ZIVA_ANIMATION_START, 0.0)
+            attributes.createTag(self.root, ZIVA_ANIMATION_END, 0.0)
+            attributes.createTag(self.root, ZIVA_ANIMATION_TRANSITION, 0.0)
+
+        # set container and mover if declared
+        if container:
+            self.container = container
+        if mover:
+            self.mover = mover
+
+        # create solver parent
+        self._createSolverParent()
+
+        # initialize animation data
+        self._updateAnimationData()
 
     # ------------------------------------------------------------------------
 
@@ -171,45 +317,75 @@ class AnimationExport(object):
         :return: Container node
         :rtype: str
         """
-        return self._container
+        return attributes.getLink(
+            self.root,
+            ZIVA_ANIMATION_CONTAINER,
+            destination=True
+        )
 
     @container.setter
     def container(self, container):
-        # set container
-        self._container = container
+        # remove existing container
+        if self.container:
+            attributes.removeLink(
+                self.root,
+                self.container,
+                ZIVA_ANIMATION_CONTAINER
+            )
 
-        # validate container
-        if not container:
-            self._animationPlugs = []
-            self._animationNodes = []
-            self._animationCurves = []
+        # set new container
+        if container:
+            attributes.createLink(
+                self.root,
+                container,
+                ZIVA_ANIMATION_CONTAINER
+            )
 
-            self._animationStartFrame = None
-            self._animationEndFrame = None
+        self._updateAnimationData()
 
+    # ------------------------------------------------------------------------
+
+    @property
+    def solver(self):
+        """
+        The solver parent group is used to drive the ziva solver with the
+        snapping of the character created in the pre roll animation.
+
+        :return: Solver parent
+        :rtype: str/None
+        """
+        # the reason for looping through it's children rather than relying on
+        # a link is that when exporting an alembic this link attribute
+        # connection is not respected.
+        for child in cmds.listRelatives(self.root, children=True):
+            if cmds.objExists(attributes.getPlug(child, ZIVA_SOLVER_PARENT)):
+                return child
+
+    @decorators.preserveSelection
+    def _createSolverParent(self):
+        """
+        Create and tag the solver parent node. If the solver already exists
+        no new solver will be created. As the solver is to be exported it
+        will be parented underneath the root node.
+        """
+        # validate solver
+        if self.solver:
             return
 
-        # get content
-        nodes = self._getTransformContent(container)
+        # create solver node
+        parent = cmds.createNode(
+            "transform",
+            name="solver_parent",
+            skipSelect=True
+        )
+        parent = cmds.parent(parent, self.root)[0]
 
-        # loop nodes
-        for node in nodes:
-            # get animation curves
-            curves = getIncomingAnimationCurves(node)
-
-            # validate curves
-            if curves:
-                # get plugs
-                plugs = getPlugFromAnimationCurves(curves)
-
-                # populate animation variables
-                self._animationPlugs.extend(plugs)
-                self._animationNodes.append(node)
-                self._animationCurves.extend(curves)
-
-        # set animation range
-        self._animationStartFrame, self._animationEndFrame = \
-            getAnimationRange(self._animationCurves)
+        # create link
+        attributes.createLink(
+            self.root,
+            parent,
+            ZIVA_SOLVER_PARENT
+        )
 
     # ------------------------------------------------------------------------
 
@@ -224,47 +400,28 @@ class AnimationExport(object):
         :return: Mover node
         :rtype: str
         """
-        return self._mover
+        return attributes.getLink(
+            self.root,
+            ZIVA_ANIMATION_MOVER,
+            destination=True
+        )
 
     @mover.setter
     def mover(self, mover):
-        self._mover = mover
+        # remove existing mover
+        if self.mover:
+            attributes.removeLink(
+                self.root,
+                self.mover,
+                ZIVA_ANIMATION_MOVER
+            )
 
-    # ------------------------------------------------------------------------
-
-    @property
-    def exporter(self):
-        """
-        The exporter node is the node that indicates which group and its
-        children to export as an alembic cache.
-
-        :param str exporter:
-        :return: Parent node to export
-        :rtype: str
-        """
-        return self._exporter
-
-    @exporter.setter
-    def exporter(self, exporter):
-        # set exporter
-        self._exporter = exporter
-
-        # validate exporter
-        if not exporter:
-            self._solver = None
-            return
-
-        # find/create solver
-        children = cmds.listRelatives(exporter, children=True) or []
-        children = [child.split("|")[-1] for child in children]
-
-        if SOLVER_PARENT in children:
-            self._solver = "{}|{}".format(exporter, SOLVER_PARENT)
-        else:
-            self._solver = cmds.group(
-                empty=True,
-                parent=self.exporter,
-                name=SOLVER_PARENT
+        # set new mover
+        if mover:
+            attributes.createLink(
+                self.root,
+                mover,
+                ZIVA_ANIMATION_MOVER
             )
 
     # ------------------------------------------------------------------------
@@ -296,6 +453,70 @@ class AnimationExport(object):
         """
         if plug in self.additionalKeyframes.keys():
             del self.additionalKeyframes[plug]
+
+    # ------------------------------------------------------------------------
+
+    def _updateAnimationData(self):
+        """
+        When the container updates this function should be called to populate
+        the animation data. This animation data is used in both the shift
+        animation and adding pre roll animation functions.
+        """
+        # validate container
+        if not self.container:
+            self._animationPlugs = []
+            self._animationNodes = []
+            self._animationCurves = []
+
+            self.startFrame = None
+            self.endFrame = None
+
+            return
+
+        # get content
+        nodes = self._getTransformContent(self.container)
+
+        # loop nodes
+        for node in nodes:
+            # get animation curves
+            curves = getIncomingAnimationCurves(node)
+
+            # validate curves
+            if curves:
+                # get plugs
+                plugs = getPlugFromAnimationCurves(curves)
+
+                # populate animation variables
+                self._animationPlugs.extend(plugs)
+                self._animationNodes.append(node)
+                self._animationCurves.extend(curves)
+
+        # set animation range
+        self.startFrame, self.endFrame = \
+            getAnimationRange(self._animationCurves)
+
+    # ------------------------------------------------------------------------
+
+    def _storeAnimationStartFrame(self, value):
+        """
+        :param int/float value:
+        """
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_START)
+        cmds.setAttr(plug, value)
+
+    def _storeAnimationEndFrame(self, value):
+        """
+        :param int/float value:
+        """
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_END)
+        cmds.setAttr(plug, value)
+
+    def _storeAnimationTransitionFrames(self, value):
+        """
+        :param int/float value:
+        """
+        plug = attributes.getPlug(self.root, ZIVA_ANIMATION_TRANSITION)
+        cmds.setAttr(plug, value)
 
     # ------------------------------------------------------------------------
 
@@ -425,7 +646,7 @@ class AnimationExport(object):
         set to linear to make sure the pre roll blend is linear.
         """
         # set frame
-        cmds.currentTime(self._animationStartFrame)
+        cmds.currentTime(self.startFrame)
 
         # set keyframes
         cmds.setKeyframe(
@@ -451,7 +672,7 @@ class AnimationExport(object):
 
         # get nodes
         nodes = []
-        nodes.append(self._solver)
+        nodes.append(self.solver)
         nodes.extend(self._animationPlugs)
         nodes.extend(self.additionalKeyframes.keys())
 
@@ -480,7 +701,7 @@ class AnimationExport(object):
         zeroMatrixList = self._getWorldMatrix(self.mover, self._zeroFrame)
         zeroMatrix = api.listToMatrix(zeroMatrixList)
 
-        animMatrixList = self._getWorldMatrix(self.mover, self._animationStartFrame)
+        animMatrixList = self._getWorldMatrix(self.mover, self.startFrame)
         animMatrix = api.listToMatrix(animMatrixList)
 
         # construct mover matrix
@@ -496,7 +717,7 @@ class AnimationExport(object):
         # influence each other it is important to check if the set transform
         # is set to the correct position.
         transformData = OrderedDict()
-        for transform in self._animationNodes + [self._solver]:
+        for transform in self._animationNodes + [self.solver]:
             # get transformation matrix
             zeroMatrixList = self._getWorldMatrix(transform, self._zeroFrame)
             zeroMatrix = api.listToMatrix(zeroMatrixList)
@@ -600,7 +821,7 @@ class AnimationExport(object):
         )
 
         # set animation range
-        self._animationStartFrame, self._animationEndFrame = \
+        self.startFrame, self.endFrame = \
             getAnimationRange(self._animationCurves)
 
     def addPreRoll(self, transitionFrames=10, maxIterations=10):
@@ -615,8 +836,11 @@ class AnimationExport(object):
         :param int transitionFrames:
         :param int maxIterations:
         """
+        # store transition frames
+        self.transitionFrames = transitionFrames
+
         # get key frame values
-        self._moveFrame = self._animationStartFrame - transitionFrames
+        self._moveFrame = self.startFrame - transitionFrames
         self._zeroFrame = self._moveFrame - 1
 
         # set keyframes
@@ -627,3 +851,53 @@ class AnimationExport(object):
 
         # set current frame to zero frame
         cmds.currentTime(self._zeroFrame)
+
+    # ------------------------------------------------------------------------
+
+    @decorators.loadAlembicExportPlugin
+    def export(self, output, step=1):
+        """
+        Export an alembic cache of the root node. All the animation will
+        be shifted to frame 1001 for consistency and a pre roll will be added
+        to the animation.
+
+        :param str output:
+        :param int/float step:
+        """
+        # get frame range
+        start, end = getAnimationRange(self._animationCurves)
+
+        # store frame range
+        self._storeAnimationStartFrame(start)
+        self._storeAnimationEndFrame(end)
+
+        # construct attributes
+        attrs = [
+            "-attr {}".format(attr)
+            for attr in [
+                ZIVA_ANIMATION,
+                ZIVA_SOLVER_PARENT,
+                ZIVA_ANIMATION_TRANSITION,
+                ZIVA_ANIMATION_START,
+                ZIVA_ANIMATION_END
+            ]
+        ]
+
+        # construct command
+        cmd = " ".join(
+            [
+                "-frameRange {} {}".format(start, end),
+                "-step {}".format(step),
+                " ".join(attrs),
+                "-wholeFrameGeo",
+                "-worldSpace",
+                "-writeVisibility",
+                "-eulerFilter",
+                "-dataFormat ogawa",
+                "-root '{}'".format(self.root),
+                "-file '{}'".format(output)
+            ]
+        )
+
+        # execute command
+        cmds.AbcExport(j=cmd)
