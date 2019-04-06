@@ -1,39 +1,33 @@
 from maya import cmds
-from . import path, transforms, attributes
-from .animation import Animation
+from zUtils import path, transforms, attributes
+from zAnimation import Animation
+
+from .base import Muscles
+from .tags import (
+    ZIVA_MUSCLES_ANIMATION,
+    ZIVA_SOLVER,
+    ZIVA_SOLVER_ATTRIBUTES
+)
 
 
 # ----------------------------------------------------------------------------
 
 
-ZIVA_MUSCLE_RIG = "__ziva_muscle_rig"
-ZIVA_SOLVER = "__ziva_solver"
-ZIVA_SOLVER_ATTRIBUTES = [
-    "tx", "ty", "tz",
-    "rx", "ry", "rz",
-    "sx", "sy", "sz",
-]
+class MusclesAnimationImport(Muscles):
+    def __init__(self, root, character=None, animation=None, solver=None):
+        super(MusclesAnimationImport, self).__init__(root, character)
 
-
-# ----------------------------------------------------------------------------
-
-
-class MuscleRig(object):
-    def __init__(self, root, character=None, solver=None):
-        # define variables
-        self._root = root
-
-        # validate character
-        if not character and not self.character:
-            raise RuntimeError("Declare the 'character' variable!")
+        # validate animation
+        if not animation and not self.animation:
+            raise RuntimeError("Declare the 'animation' variable!")
 
         # validate solver
         if not solver and not self.solver:
             raise RuntimeError("Declare the 'solver' variable!")
 
-        # set character if declared
-        if character:
-            attributes.createTag(self.root, ZIVA_MUSCLE_RIG, character)
+        # set animation if declared
+        if animation:
+            attributes.createLink(self.root, animation, ZIVA_MUSCLES_ANIMATION)
 
         # set solver if declared
         if solver:
@@ -41,62 +35,17 @@ class MuscleRig(object):
 
     # ------------------------------------------------------------------------
 
-    @classmethod
-    def getMuscleRigsFromScene(cls):
-        """
-        Loop over all transforms and that contain an import animation tag.
-        Read the value of this tag and add it into a dictionary.
-
-        :return: Exported animation from current scene
-        :rtype: dict
-        """
-        # data variable
-        data = {}
-
-        # loop transforms
-        for node in cmds.ls(transforms=True):
-            # get plug
-            plug = attributes.getPlug(node, ZIVA_MUSCLE_RIG)
-
-            # validate plug
-            if cmds.objExists(plug):
-                # get character
-                character = cmds.getAttr(plug)
-
-                # add character to dictionary
-                if character not in data.keys():
-                    data[character] = []
-
-                # add animation to dictionary
-                data[character].append(cls(node, character))
-
-        return data
-
-    # ------------------------------------------------------------------------
-
     @property
-    def character(self):
+    def animation(self):
         """
-        The character name gets stored throughout the importing and exporting
-        process. It is the value that links an import and export.
-
-        :return: Character name
+        :return: Ziva animation importer node
         :rtype: str
         """
-        return attributes.getTag(self.root, ZIVA_MUSCLE_RIG)
-
-    @property
-    def root(self):
-        """
-        The root node is the node that indicates the root of the animation
-        node. Either in import or export mode.
-
-        :return: Root node
-        :rtype: str
-        """
-        return self._root
-
-    # ------------------------------------------------------------------------
+        return attributes.getLink(
+            self.root,
+            ZIVA_MUSCLES_ANIMATION,
+            destination=True
+        )
 
     @property
     def solver(self):
@@ -178,7 +127,7 @@ class MuscleRig(object):
 
         # get meshes
         sourceMeshes = self._getMeshTransforms(animation.root)
-        targetMeshes = self._getMeshTransforms(self.root)
+        targetMeshes = self._getMeshTransforms(self.animation)
 
         # get meshes mappers
         mapper = {path.getName(m): m for m in targetMeshes}
