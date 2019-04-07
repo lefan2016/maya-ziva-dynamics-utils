@@ -1,6 +1,13 @@
 from maya import cmds
 from collections import OrderedDict
-from zUtils import api, animation, transforms, attributes, decorators
+from zUtils import (
+    api,
+    contexts,
+    animation,
+    transforms,
+    attributes,
+    decorators
+)
 
 from .base import Animation
 from .tags import (
@@ -552,7 +559,7 @@ class AnimationExport(Animation):
         self._zeroFrame = self._moveFrame - 1
 
         # set keyframes
-        with animation.DisableAutoKeyframe():
+        with contexts.DisableAutoKeyframe():
             self._setAnimKeyframes()
             self._setZeroKeyframes()
             self._setMoverKeyframes(maxIterations)

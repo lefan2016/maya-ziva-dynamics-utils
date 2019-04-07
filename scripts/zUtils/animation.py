@@ -98,27 +98,3 @@ def getAnimationRange(animCurves):
 
     # get start and end frame
     return [min(frames), max(frames)]
-
-
-class DisableAutoKeyframe(object):
-    """
-    This context temporarily disables the auto keyframe command. If auto
-    keyframe is turned off before going into this context no changes will be
-    made.
-
-    .. highlight::
-        with DisableAutoKeyframe:
-            # code
-    """
-    def __init__(self):
-        self._state = cmds.autoKeyframe(query=True, state=True)
-
-    # ------------------------------------------------------------------------
-
-    def __enter__(self):
-        if self._state:
-            cmds.autoKeyframe(state=0)
-
-    def __exit__(self, *exc_info):
-        if self._state:
-            cmds.autoKeyframe(state=1)

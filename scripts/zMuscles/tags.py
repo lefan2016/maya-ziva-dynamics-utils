@@ -6,3 +6,4 @@ ZIVA_SOLVER_ATTRIBUTES = [
     "rx", "ry", "rz",
     "sx", "sy", "sz",
 ]
+

@@ -1,5 +1,5 @@
 from maya import cmds
-from zUtils import path, transforms, attributes
+from zUtils import path, contexts, transforms, attributes
 from zAnimation import Animation
 
 from .base import Muscles
@@ -72,59 +72,13 @@ class MusclesAnimationImport(Muscles):
 
     # ------------------------------------------------------------------------
 
-    def getAnimations(self):
+    def _createBlendshapes(self, animation):
         """
-        :return: Exported animation
-        :rtype: list
-        """
-        return Animation.getAnimationsFromScene().get(self.character, [])
+        Create blendshapes between matches it can find between the animation
+        and muscle rig.
 
-    # ------------------------------------------------------------------------
-
-    def removeAnimation(self):
-        """
-        Loop all meshes in the importer node and see if a blendshape node is
-        connected. If this is the case remove the blendshape node.
-        """
-        # get meshes
-        meshes = cmds.listRelatives(
-            self.root,
-            allDescendents=True,
-            type="mesh"
-        )
-
-        # remove blendshapes from history
-        for mesh in meshes:
-            blendshapes = [
-                node
-                for node in cmds.listHistory(mesh)
-                if cmds.nodeType(node) == "blendShape"
-            ]
-
-            if blendshapes:
-                cmds.delete(blendshapes)
-
-        # remove animation curves from solver
-        for attr in ZIVA_SOLVER_ATTRIBUTES:
-            plug = attributes.getPlug(self.solver, attr)
-            anim = cmds.listConnections(
-                plug,
-                type="animCurve",
-                source=True,
-                destination=False,
-                skipConversionNodes=True
-            )
-
-            if anim:
-                cmds.delete(anim)
-
-    def applyAnimation(self, animation):
-        """
         :param AnimationExport animation:
         """
-        # remove existing animation
-        self.removeAnimation()
-
         # get meshes
         sourceMeshes = self._getMeshTransforms(animation.root)
         targetMeshes = self._getMeshTransforms(self.animation)
@@ -150,13 +104,25 @@ class MusclesAnimationImport(Muscles):
                 origin="world"
             )
 
-        # animate solver
+    def _createSolverAnimation(self, animation):
+        """
+        Create solver animation. It handles the first frame jump and the
+        substeps on the solver.
+
+        :param AnimationExport animation:
+        """
+        # set animation start frame
+        plug = attributes.getPlug(self.solver, "startFrame")
+        cmds.setAttr(plug, animation.startFrame)
+
+        # get solver mover plugs
         plugs = [
             attributes.getPlug(self.solver, attr)
             for attr in ZIVA_SOLVER_ATTRIBUTES
         ]
 
-        for frame in [animation.startFrame, animation.startFrame+1]:
+        # create first frame jump
+        for frame in [animation.startFrame, animation.startFrame + 1]:
             # set time
             cmds.currentTime(frame)
 
@@ -170,3 +136,93 @@ class MusclesAnimationImport(Muscles):
                 inTangentType="linear",
                 outTangentType="linear"
             )
+
+        # create sub step frame jump
+        plug = attributes.getPlug(self.solver, "substeps")
+
+        # set keyframes
+        tangents = {"inTangentType": "linear", "outTangentType": "linear"}
+        cmds.setKeyframe(plug, time=animation.startFrame + 2, **tangents)
+        cmds.setKeyframe(plug, time=animation.startFrame + 1, value=1, **tangents)
+        cmds.setKeyframe(plug, time=animation.startFrame, value=1, **tangents)
+
+    # ------------------------------------------------------------------------
+
+    def _removeBlendshapes(self):
+        """
+        Loop all meshes and see if there is a blendshape connected to it. If
+        it is remove the blendshape node.
+        """
+        # get meshes
+        meshes = cmds.listRelatives(
+            self.animation,
+            allDescendents=True,
+            type="mesh"
+        )
+
+        # remove blendshapes from history
+        for mesh in meshes:
+            blendshapes = [
+                node
+                for node in cmds.listHistory(mesh)
+                if cmds.nodeType(node) == "blendShape"
+            ]
+
+            if blendshapes:
+                cmds.delete(blendshapes)
+
+    def _removeSolverAnimation(self):
+        """
+        Loop al keyframed attributes on the solver and delete any animation
+        curves connected to it.
+        """
+        # remove animation curves from solver
+        for attr in ZIVA_SOLVER_ATTRIBUTES + ["substeps"]:
+            plug = attributes.getPlug(self.solver, attr)
+            anim = cmds.listConnections(
+                plug,
+                type="animCurve",
+                source=True,
+                destination=False,
+                skipConversionNodes=True
+            )
+
+            if anim:
+                cmds.delete(anim)
+
+    # ------------------------------------------------------------------------
+
+    def getAnimations(self):
+        """
+        :return: Exported animation
+        :rtype: list
+        """
+        return Animation.getAnimationsFromScene().get(self.character, [])
+
+    # ------------------------------------------------------------------------
+
+    def removeAnimation(self):
+        """
+        Loop all meshes in the importer node and see if a blendshape node is
+        connected. If this is the case remove the blendshape node.
+        """
+        self._removeBlendshapes()
+        self._removeSolverAnimation()
+
+    def applyAnimation(self, animation):
+        """
+        :param AnimationExport animation:
+        """
+        # set start frame of existing solver frame
+        plug = attributes.getPlug(self.solver, "startFrame")
+        frame = cmds.getAttr(plug)
+        cmds.currentTime(frame)
+
+        # disable ziva solvers
+        with contexts.DisableZivaSolvers():
+            # remove existing animation
+            self.removeAnimation()
+
+            # create animation
+            self._createBlendshapes(animation)
+            self._createSolverAnimation(animation)
