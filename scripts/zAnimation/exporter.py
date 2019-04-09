@@ -569,7 +569,7 @@ class AnimationExport(Animation):
 
     # ------------------------------------------------------------------------
 
-    @decorators.loadAlembicExportPlugin
+    @decorators.loadPlugin("AbcExport.mll")
     def export(self, output, step=1):
         """
         Export an alembic cache of the root node. All the animation will

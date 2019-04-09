@@ -1,3 +1,6 @@
+REPLACE = ["_mesh", "_bone", "_crv"]
+
+
 def getBase(path):
     """
     :param str path:
@@ -14,6 +17,24 @@ def getName(path):
     :rtype: str
     """
     return getBase(path).split(":")[-1]
+
+
+def getNiceName(path, replace=REPLACE):
+    """
+    :param str path:
+    :param list replace:
+    :return: Name
+    :rtype: str
+    """
+    # get name
+    name = getName(path)
+
+    # do name replacements
+    for r in replace:
+        name = name.replace(r, "")
+
+    return name
+
 
 # ----------------------------------------------------------------------------
 
@@ -41,3 +62,4 @@ def removeNamespace(node):
     ]
 
     return "|".join(sections)
+

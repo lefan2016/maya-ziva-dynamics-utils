@@ -2,38 +2,20 @@ from maya import cmds
 from functools import wraps
 
 
-ALEMBIC_IMPORT_PLUGIN = "AbcImport.mll"
-ALEMBIC_EXPORT_PLUGIN = "AbcExport.mll"
+def loadPlugin(pluginToLoad):
+    def wrapper(func):
+        """
+        Make sure the provided plugin is loaded before the function is called.
+        """
+        @wraps(func)
+        def inner(*args, **kwargs):
+            if not cmds.pluginInfo(pluginToLoad, query=True, loaded=True):
+                cmds.loadPlugin(pluginToLoad)
 
-
-def loadAlembicImportPlugin(func):
-    """
-    Make sure the alembic import is loaded before the function is called.
-    This decorator can be used on functions that need to import alembic files.
-    """
-    @wraps(func)
-    def inner(*args, **kwargs):
-        if not cmds.pluginInfo(ALEMBIC_IMPORT_PLUGIN, query=True, loaded=True):
-            cmds.loadPlugin(ALEMBIC_IMPORT_PLUGIN)
-
-        ret = func(*args, **kwargs)
-        return ret
-    return inner
-
-
-def loadAlembicExportPlugin(func):
-    """
-    Make sure the alembic export is loaded before the function is called.
-    This decorator can be used on functions that need to export alembic files.
-    """
-    @wraps(func)
-    def inner(*args, **kwargs):
-        if not cmds.pluginInfo(ALEMBIC_EXPORT_PLUGIN, query=True, loaded=True):
-            cmds.loadPlugin(ALEMBIC_EXPORT_PLUGIN)
-
-        ret = func(*args, **kwargs)
-        return ret
-    return inner
+            ret = func(*args, **kwargs)
+            return ret
+        return inner
+    return wrapper
 
 
 def preserveSelection(func):

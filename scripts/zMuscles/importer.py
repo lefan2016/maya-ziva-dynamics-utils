@@ -1,5 +1,5 @@
 from maya import cmds
-from zUtils import path, contexts, transforms, attributes
+from zUtils import path, contexts, transforms, attributes, decorators
 from zAnimation import Animation
 
 from .base import Muscles
@@ -57,52 +57,49 @@ class MusclesAnimationImport(Muscles):
 
     # ------------------------------------------------------------------------
 
-    def _getMeshTransforms(self, node):
+    def _transferAnimation(self, animation):
         """
-        Get all descendents of a node and filter all of its meshes. Once the
-        meshes are found the direct parent of this mesh is added to the list
-        that is returned.
-
-        :param str node:
-        :return: Mesh transforms
-        :rtype: list
-        """
-        meshes = cmds.listRelatives(node, allDescendents=True, type="mesh")
-        return [cmds.listRelatives(m, parent=True)[0] for m in meshes]
-
-    # ------------------------------------------------------------------------
-
-    def _createBlendshapes(self, animation):
-        """
-        Create blendshapes between matches it can find between the animation
-        and muscle rig.
+        Create a driving connection between matches of the animation and
+        muscle rig. Meshes will be checked to see if they
 
         :param AnimationExport animation:
         """
         # get meshes
-        sourceMeshes = self._getMeshTransforms(animation.root)
-        targetMeshes = self._getMeshTransforms(self.animation)
+        sources = cmds.listRelatives(animation.root, allDescendents=True)
+        targets = cmds.listRelatives(self.animation, allDescendents=True)
 
         # get meshes mappers
-        mapper = {path.getName(m): m for m in targetMeshes}
+        mapper = {path.getName(t): t for t in targets}
 
-        # remove existing animation on target nodes
-        for source in sourceMeshes:
+        # loop source meshes
+        for source in sources:
             # get target mesh
             name = path.getName(source)
             target = mapper.get(name)
 
             if not target:
+                s = "DEBUG: transferAnimation | Unable to find target for {}!"
+                print s.format(source)
                 continue
 
-            # apply blendshape
-            cmds.blendShape(
+            # get connections
+            connections = cmds.listConnections(
                 source,
-                target,
-                frontOfChain=True,
-                weight=[0, 1],
-                origin="world"
-            )
+                type="AlembicNode",
+                plugs=True,
+                connections=True,
+                skipConversionNodes=True,
+                source=True,
+                destination=False
+            ) or []
+
+            # do connections
+            targetAttributes = [t.split(".", 1)[-1] for t in connections[::2]]
+            sourcePlugs = connections[1::2]
+
+            for sourcePlug, attr in zip(sourcePlugs, targetAttributes):
+                targetPlug = attributes.getPlug(target, attr)
+                cmds.connectAttr(sourcePlug, targetPlug, force=True)
 
     def _createSolverAnimation(self, animation):
         """
@@ -148,28 +145,31 @@ class MusclesAnimationImport(Muscles):
 
     # ------------------------------------------------------------------------
 
-    def _removeBlendshapes(self):
+    def _removeAnimation(self):
         """
-        Loop all meshes and see if there is a blendshape connected to it. If
-        it is remove the blendshape node.
+        Loop al nodes in the animation container and remove any connection
+        made to an AlembicNode.
         """
-        # get meshes
-        meshes = cmds.listRelatives(
-            self.animation,
-            allDescendents=True,
-            type="mesh"
-        )
+        # get nodes
+        nodes = cmds.listRelatives(self.animation, allDescendents=True)
 
-        # remove blendshapes from history
-        for mesh in meshes:
-            blendshapes = [
-                node
-                for node in cmds.listHistory(mesh)
-                if cmds.nodeType(node) == "blendShape"
-            ]
+        # get connections
+        connections = cmds.listConnections(
+            nodes,
+            type="AlembicNode",
+            plugs=True,
+            connections=True,
+            skipConversionNodes=True,
+            source=True,
+            destination=False
+        ) or []
 
-            if blendshapes:
-                cmds.delete(blendshapes)
+        # remove connections
+        sourcePlugs = connections[1::2]
+        targetPlugs = connections[::2]
+
+        for source, target in zip(sourcePlugs, targetPlugs):
+            cmds.disconnectAttr(source, target)
 
     def _removeSolverAnimation(self):
         """
@@ -206,23 +206,31 @@ class MusclesAnimationImport(Muscles):
         Loop all meshes in the importer node and see if a blendshape node is
         connected. If this is the case remove the blendshape node.
         """
-        self._removeBlendshapes()
-        self._removeSolverAnimation()
+        # disable ziva solvers
+        with contexts.DisableZivaSolvers():
+            # set start frame of existing solver frame
+            plug = attributes.getPlug(self.solver, "startFrame")
+            frame = cmds.getAttr(plug)
+            cmds.currentTime(frame)
+
+            # remove animation
+            self._removeAnimation()
+            self._removeSolverAnimation()
 
     def applyAnimation(self, animation):
         """
         :param AnimationExport animation:
         """
-        # set start frame of existing solver frame
-        plug = attributes.getPlug(self.solver, "startFrame")
-        frame = cmds.getAttr(plug)
-        cmds.currentTime(frame)
-
         # disable ziva solvers
         with contexts.DisableZivaSolvers():
+            # set start frame of existing solver frame
+            plug = attributes.getPlug(self.solver, "startFrame")
+            frame = cmds.getAttr(plug)
+            cmds.currentTime(frame)
+
             # remove existing animation
             self.removeAnimation()
 
             # create animation
-            self._createBlendshapes(animation)
+            self._transferAnimation(animation)
             self._createSolverAnimation(animation)
