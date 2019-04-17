@@ -1,5 +1,6 @@
 from PySide2 import QtWidgets, QtCore, QtGui
-from . import create, attach, contexts
+from . import create, attach
+from zUtils import contexts
 from zUtils.ui import mayaWindow, getIconPath
 
 
@@ -38,7 +39,7 @@ class LineOfActionUtils(QtWidgets.QWidget):
 
     def clusterLineOfAction(self):
         with contexts.UndoChunk():
-            create.clusterLineOfAction()
+            attach.clusterLineOfAction()
 
 
 def show():
