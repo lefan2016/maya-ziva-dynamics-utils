@@ -3,6 +3,14 @@ from zUtils import path, curves, selection
 
 
 def clusterLineOfAction():
+    """
+    Cluster the selected curves. The first cv of the curve is considered the
+    origin and the last cv the insertion. Any additional cluster will be
+    numerated.
+
+    :return: Clusters
+    :rtype: list
+    """
     clusters = []
 
     # get selected curves

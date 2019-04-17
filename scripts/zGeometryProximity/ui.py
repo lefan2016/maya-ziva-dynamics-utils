@@ -1,5 +1,6 @@
 from PySide2 import QtWidgets, QtCore, QtGui
-from .geometry import selectGeometryByProximity
+from . import geometry
+from zUtils import contexts
 from zUtils.ui import mayaWindow, getIconPath
 
 
@@ -36,8 +37,9 @@ class GeometryProximity(QtWidgets.QWidget):
     # ------------------------------------------------------------------------
 
     def doSelection(self):
-        r = self.r.value()
-        selectGeometryByProximity(r)
+        with contexts.UndoChunk():
+            r = self.r.value()
+            geometry.selectGeometryByProximity(r)
 
 
 def show():

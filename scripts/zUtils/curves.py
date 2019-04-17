@@ -2,6 +2,11 @@ from maya import cmds
 
 
 def getNumCVs(curve):
+    """
+    :param str curve:
+    :return: Number of cvs
+    :rtype: int
+    """
     # get attributes
     spans = cmds.getAttr("{}.spans".format(curve))
     degree = cmds.getAttr("{}.degree".format(curve))
@@ -18,6 +23,11 @@ def getNumCVs(curve):
 
 
 def clusterCurve(curve):
+    """
+    :param str curve:
+    :return: Clusters
+    :rtype: list
+    """
     clusters = []
     numCVs = getNumCVs(curve)
 

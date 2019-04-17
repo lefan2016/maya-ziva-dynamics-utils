@@ -30,6 +30,8 @@ class AnimationExport(Animation):
         self._animationNodes = []
         self._animationCurves = []
         self._additionalKeyframes = {}
+        self._moveFrame = None
+        self._zeroFrame = None
 
         # validate container
         if not container and not self.container:

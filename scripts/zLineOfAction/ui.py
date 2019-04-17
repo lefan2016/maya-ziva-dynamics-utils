@@ -1,5 +1,5 @@
 from PySide2 import QtWidgets, QtCore, QtGui
-from . import create, attach
+from . import create, attach, contexts
 from zUtils.ui import mayaWindow, getIconPath
 
 
@@ -21,14 +21,24 @@ class LineOfActionUtils(QtWidgets.QWidget):
 
         # add widgets
         cr = QtWidgets.QPushButton(self)
-        cr.setText("Create Line of Action Curve")
-        cr.released.connect(create.createLineOfAction)
+        cr.setText("Create Line of Action")
+        cr.released.connect(self.createLineOfAction)
         layout.addWidget(cr)
 
         cl = QtWidgets.QPushButton(self)
-        cl.setText("Cluster Line of Action Curve")
-        cl.released.connect(attach.clusterLineOfAction)
+        cl.setText("Cluster Line of Action")
+        cl.released.connect(self.clusterLineOfAction)
         layout.addWidget(cl)
+
+    # ------------------------------------------------------------------------
+
+    def createLineOfAction(self):
+        with contexts.UndoChunk():
+            create.createLineOfAction()
+
+    def clusterLineOfAction(self):
+        with contexts.UndoChunk():
+            create.clusterLineOfAction()
 
 
 def show():

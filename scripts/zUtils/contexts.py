@@ -54,3 +54,21 @@ class DisableAutoKeyframe(object):
     def __exit__(self, *exc_info):
         if self._state:
             cmds.autoKeyframe(state=1)
+
+
+class UndoChunk(object):
+    """
+    This context will create a undo chunk of every commands that is ran within
+    the context.
+
+    .. highlight::
+        with UndoChunk():
+            # code
+    """
+    # ------------------------------------------------------------------------
+
+    def __enter__(self):
+        cmds.undoInfo(openChunk=True)
+
+    def __exit__(self, *exc_info):
+        cmds.undoInfo(closeChunk=True)
