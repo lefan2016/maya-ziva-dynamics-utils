@@ -170,6 +170,7 @@ class MusclesAnimationImport(Muscles):
 
         for source, target in zip(sourcePlugs, targetPlugs):
             cmds.disconnectAttr(source, target)
+            attributes.setDefaultValue(target)
 
     def _removeSolverAnimation(self):
         """
