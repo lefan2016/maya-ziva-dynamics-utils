@@ -1,4 +1,5 @@
 from maya import cmds
+from . import decorators
 
 
 def extendWithShapes(selection):
@@ -33,4 +34,17 @@ def filterByType(selection, types):
     :return: Filtered selection
     :rtype: list
     """
+    return cmds.ls(selection, type=types)
+
+
+@decorators.loadPlugin("ziva.mll")
+def filterByZivaTypes(selection):
+    """
+    Filter the parsed selection based on ziva types.
+
+    :param selection:
+    :return: Filtered selection
+    :rtype: list
+    """
+    types = cmds.pluginInfo("ziva.mll", query=True, dependNode=True)
     return cmds.ls(selection, type=types)
