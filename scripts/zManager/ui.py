@@ -1,6 +1,7 @@
+from maya import cmds
 from PySide2 import QtWidgets, QtCore, QtGui
 from . import items, icons, widgets
-from zUtils.ui import mayaWindow
+from zUtils import contexts, ui
 
 
 class Manager(QtWidgets.QWidget):
@@ -35,9 +36,6 @@ class Manager(QtWidgets.QWidget):
         self.tree.setFocusPolicy(QtCore.Qt.NoFocus)
         self.tree.header().setVisible(False)
         layout.addWidget(self.tree)
-
-        # update with current solver
-        self.update(self.solver.solver)
 
     # ------------------------------------------------------------------------
 
@@ -121,6 +119,11 @@ class Manager(QtWidgets.QWidget):
 
 
 def show():
-    parent = mayaWindow()
+    parent = ui.mayaWindow()
     widget = Manager(parent)
     widget.show()
+
+    with ui.Wait():
+        ui.processEvents()
+        solver = widget.solver.solver
+        widget.update(solver)

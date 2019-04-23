@@ -2,9 +2,11 @@ from PySide2 import QtWidgets, QtGui
 from .. import icons
 from . import base
 from .nodeMapper import NODE_TYPES_WRAPPER
+from zUtils import ui
 
 
 class ZivaNodeTypeItem(base.LabelItem):
+    @ui.update
     def __init__(self, parent, nodeType, nodes):
         super(ZivaNodeTypeItem, self).__init__(parent, nodeType)
 
