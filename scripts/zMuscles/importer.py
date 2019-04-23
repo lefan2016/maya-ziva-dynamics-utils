@@ -218,20 +218,28 @@ class MusclesAnimationImport(Muscles):
             self._removeAnimation()
             self._removeSolverAnimation()
 
+        cmds.refresh()
+        cmds.currentTime(frame)
+
     def applyAnimation(self, animation):
         """
         :param AnimationExport animation:
         """
+        # remove existing animation
+        self.removeAnimation()
+
         # disable ziva solvers
         with contexts.DisableZivaSolvers():
-            # set start frame of existing solver frame
-            plug = attributes.getPlug(self.solver, "startFrame")
-            frame = cmds.getAttr(plug)
-            cmds.currentTime(frame)
-
-            # remove existing animation
-            self.removeAnimation()
-
             # create animation
             self._transferAnimation(animation)
-            self._createSolverAnimation(animation)
+
+            # create solver animation
+            if animation.transitionFrames:
+                self._createSolverAnimation(animation)
+
+            # set start frame - 1
+            # doing this will prevent a crash
+            cmds.currentTime(animation.startFrame-1)
+
+        cmds.refresh()
+        cmds.currentTime(animation.startFrame)
