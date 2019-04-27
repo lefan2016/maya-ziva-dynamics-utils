@@ -1,15 +1,15 @@
 from maya import cmds
 from PySide2 import QtWidgets, QtCore, QtGui
 from . import copy
-from zUtils import contexts, selection
+from zUtils import contexts, selection, attributes
 from zUtils.ui import mayaWindow, getIconPath
 
 
-class ZivaSelection(QtWidgets.QWidget):
-    selectionUpdate = QtCore.Signal(str)
+class ZivaPaintableSelection(QtWidgets.QWidget):
+    plugUpdate = QtCore.Signal(str)
 
     def __init__(self, parent, name):
-        super(ZivaSelection, self).__init__(parent)
+        super(ZivaPaintableSelection, self).__init__(parent)
 
         # create layout
         layout = QtWidgets.QHBoxLayout(self)
@@ -20,24 +20,45 @@ class ZivaSelection(QtWidgets.QWidget):
         button = QtWidgets.QPushButton(self)
         button.setText(name)
         button.setFixedWidth(100)
-        button.released.connect(self.triggerSelectionUpdate)
+        button.released.connect(self.updateSelection)
         layout.addWidget(button)
 
         # create label
-        self.label = QtWidgets.QLabel(self)
-        layout.addWidget(self.label)
+        self.plug = QtWidgets.QComboBox(self)
+        self.plug.currentIndexChanged[str].connect(self.plugUpdate.emit)
+        layout.addWidget(self.plug)
 
     # ------------------------------------------------------------------------
 
-    def triggerSelectionUpdate(self):
+    def updateSelection(self):
         # filter selection
         sel = cmds.ls(sl=True)
         sel = selection.filterByZivaTypes(sel)
         node = sel[0] if sel else None
 
         # update
-        self.label.setText(node)
-        self.selectionUpdate.emit(node)
+        self.plug.clear()
+
+        # validate node
+        if not node:
+            self.plugUpdate.emit(None)
+            return
+
+        # get connected mesh
+        mesh = cmds.zQuery(node, mesh=True)[0]
+
+        # get paintable plugs
+        nodeType = cmds.nodeType(node)
+        plugs = attributes.getPaintableAttributesFromTransform(mesh)
+        attrs = plugs.get(nodeType, {}).get(node, {}).keys()
+        attrs = [attributes.getPlug(node, a) for a in attrs]
+
+        # add attributes
+        self.plug.addItems(attrs)
+
+        # emit plug
+        plug = attrs[0] if attrs else None
+        self.plugUpdate.emit(plug)
 
 
 class CopySettings(QtWidgets.QWidget):
@@ -82,7 +103,7 @@ class CopyWeights(QtWidgets.QWidget):
         self.setWindowFlags(QtCore.Qt.Window)
         self.setWindowTitle("Copy Weights")
         self.setWindowIcon(QtGui.QIcon(getIconPath("zivaLogo.png")))
-        self.resize(350, 25)
+        self.resize(450, 25)
 
         # create layout
         layout = QtWidgets.QVBoxLayout(self)
@@ -90,13 +111,13 @@ class CopyWeights(QtWidgets.QWidget):
         layout.setSpacing(3)
 
         # create source
-        self.source = ZivaSelection(self, "Set Source")
-        self.source.selectionUpdate.connect(self.setSource)
+        self.source = ZivaPaintableSelection(self, "Set Source")
+        self.source.plugUpdate.connect(self.setSource)
         layout.addWidget(self.source)
 
         # create target
-        self.target = ZivaSelection(self, "Set Target")
-        self.target.selectionUpdate.connect(self.setTarget)
+        self.target = ZivaPaintableSelection(self, "Set Target")
+        self.target.plugUpdate.connect(self.setTarget)
         layout.addWidget(self.target)
 
         # create copy

@@ -1,4 +1,5 @@
 from maya import cmds
+from . import decorators
 
 
 # ----------------------------------------------------------------------------
@@ -162,3 +163,56 @@ def getLink(node, attr, destination=False, source=False):
     # link connections
     if connections:
         return connections[0]
+
+
+# ----------------------------------------------------------------------------
+
+
+@decorators.preserveSelection
+def getPaintableAttributesFromTransform(transform):
+    """
+    Get all of the paintable attributes from a transform. The paintable
+    attributes are listed under node type and then nodes in the dictionary.
+
+    :param str transform:
+    :return: Paintable attributes
+    :rtype: dict
+    """
+    # variables
+    data = {}
+
+    # select node, the node needs to be selected for the maya command to work
+    # for this reason the preserve selection decorator is added to this
+    # function.
+    cmds.select(transform)
+
+    # get paintable attributes
+    commands = cmds.artBuildPaintMenu().split()
+
+    # loop commands
+    for command in commands:
+        # split command
+        nodeType, node, attr, _ = command.split(".")
+
+        if nodeType not in data.keys():
+            data[nodeType] = {}
+
+        if node not in data.get(nodeType).keys():
+            data[nodeType][node] = {}
+
+        # get actual attribute
+        attrs = [
+            a.rsplit("[", 1)[0]
+            for a in cmds.listAttr(node, multi=True, string=attr) or []
+            if a.count("{}[".format(attr))
+        ]
+        full = attrs[0] if attrs else attr
+
+        # validate attribute
+        if not cmds.objExists(getPlug(node, full)):
+            continue
+
+        # populate data
+        data[nodeType][node][full] = ".".join([nodeType, node, attr])
+
+    return data
