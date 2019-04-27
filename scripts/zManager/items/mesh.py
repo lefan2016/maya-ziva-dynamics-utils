@@ -20,13 +20,34 @@ class MeshItem(base.TreeItem):
     def __init__(self, parent, node):
         super(MeshItem, self).__init__(parent)
 
-        # variable
-        self._search = node.lower()
-
         # add widgets
         widget = widgets.Node(self.treeWidget(), node)
+        widget.button.released.connect(self.update)
         self.addWidget(widget)
         self.setIcon(0, QtGui.QIcon(icons.MESH_ICON))
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def search(self):
+        """
+        :return: Search string for filtering
+        :rtype: str
+        """
+        return self._widget.node.lower()
+
+    # ------------------------------------------------------------------------
+
+    def clear(self):
+        for i in reversed(range(self.childCount())):
+            self.removeChild(self.child(i))
+
+    def update(self):
+        # clear
+        self.clear()
+
+        # get node from widget
+        node = self._widget.node
 
         # add types
         for t in NODE_TYPES:
@@ -62,13 +83,3 @@ class MeshItem(base.TreeItem):
 
         # add line of actions
         nodeTypes.ZivaNodeTypeItem(self, "zLineOfAction", lineOfActions)
-
-    # ------------------------------------------------------------------------
-
-    @property
-    def search(self):
-        """
-        :return: Search string for filtering
-        :rtype: str
-        """
-        return self._search

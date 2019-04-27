@@ -17,9 +17,9 @@ class Node(QtWidgets.QWidget):
         layout.setSpacing(0)
 
         # add combo box
-        button = Button(self, text)
-        button.released.connect(self.doSelect)
-        layout.addWidget(button)
+        self.button = Button(self, text)
+        self.button.released.connect(self.doSelect)
+        layout.addWidget(self.button)
 
     # ------------------------------------------------------------------------
 

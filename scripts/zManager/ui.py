@@ -1,4 +1,3 @@
-from maya import cmds
 from PySide2 import QtWidgets, QtCore, QtGui
 from . import items, icons, widgets
 from zUtils import contexts, ui
