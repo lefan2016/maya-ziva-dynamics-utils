@@ -1,4 +1,5 @@
 from maya import cmds
+from zUtils import contexts
 
 
 class CopyWeights(object):
@@ -101,6 +102,9 @@ class CopyWeights(object):
     # ------------------------------------------------------------------------
 
     def copy(self, reverse=False):
+        """
+        :param bool reverse:
+        """
         # validate source and target
         state, message = self.validate()
         if not state:
@@ -114,13 +118,16 @@ class CopyWeights(object):
             weights = [1-weight for weight in weights]
 
         # set weights based on weight type
-        if cmds.getAttr(self.target, type=True) == "doubleArray":
-            # set weights
-            cmds.setAttr(self.target, weights, type="doubleArray")
-        elif cmds.getAttr(self.target, type=True) == "TdataCompound":
-            # set weights
-            weights = self.extendWeightsWithDefaultValues(weights, reverse)
-            for i, weight in enumerate(weights):
-                cmds.setAttr("{}[{}]".format(self.target, i), weight)
-        else:
-            raise ValueError("Weights cannot be set")
+        with contexts.UndoChunk():
+            if cmds.getAttr(self.target, type=True) == "doubleArray":
+                # set weights
+                cmds.setAttr(self.target, weights, type="doubleArray")
+
+            elif cmds.getAttr(self.target, type=True) == "TdataCompound":
+                # set weights
+                weights = self.extendWeightsWithDefaultValues(weights, reverse)
+                for i, weight in enumerate(weights):
+                    cmds.setAttr("{}[{}]".format(self.target, i), weight)
+
+            else:
+                raise ValueError("Weights cannot be set")
