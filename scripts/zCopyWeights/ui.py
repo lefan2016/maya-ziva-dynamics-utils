@@ -44,20 +44,15 @@ class ZivaPaintableSelection(QtWidgets.QWidget):
             self.plugUpdate.emit(None)
             return
 
-        # get connected mesh
-        mesh = cmds.zQuery(node, mesh=True)[0]
-
         # get paintable plugs
-        nodeType = cmds.nodeType(node)
-        plugs = attributes.getPaintableAttributesFromTransform(mesh)
-        attrs = plugs.get(nodeType, {}).get(node, {}).keys()
-        attrs = [attributes.getPlug(node, a) for a in attrs]
+        attrs = attributes.getZivaPaintableAttributes(node)
+        plugs = [attributes.getPlug(node, a) for a in attrs]
 
         # add attributes
-        self.plug.addItems(attrs)
+        self.plug.addItems(plugs)
 
         # emit plug
-        plug = attrs[0] if attrs else None
+        plug = plugs[0] if plugs else None
         self.plugUpdate.emit(plug)
 
 
