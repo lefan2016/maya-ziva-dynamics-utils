@@ -1,5 +1,5 @@
 from maya import cmds
-from . import decorators
+from .nodes import ZIVA_NODES
 
 
 # ----------------------------------------------------------------------------
@@ -168,51 +168,25 @@ def getLink(node, attr, destination=False, source=False):
 # ----------------------------------------------------------------------------
 
 
-@decorators.preserveSelection
-def getPaintableAttributesFromTransform(transform):
+def getZivaPaintableAttributes(node):
     """
-    Get all of the paintable attributes from a transform. The paintable
-    attributes are listed under node type and then nodes in the dictionary.
+    Get all of the ziva paintable attributes from a node. The ziva nodes
+    classes are retrieved from the nodes package. If the node type has a ziva
+    class associated with it the MAP_LIST will be returned.
 
-    :param str transform:
+    :param str node:
     :return: Paintable attributes
-    :rtype: dict
+    :rtype: list
     """
-    # variables
-    data = {}
+    # get node type
+    nodeType = cmds.nodeType(node)
 
-    # select node, the node needs to be selected for the maya command to work
-    # for this reason the preserve selection decorator is added to this
-    # function.
-    cmds.select(transform)
+    # get ziva node
+    zNode = ZIVA_NODES.get(nodeType)
 
-    # get paintable attributes
-    commands = cmds.artBuildPaintMenu().split()
+    # get map list
+    if zNode:
+        return zNode().MAP_LIST
 
-    # loop commands
-    for command in commands:
-        # split command
-        nodeType, node, attr, _ = command.split(".")
-
-        if nodeType not in data.keys():
-            data[nodeType] = {}
-
-        if node not in data.get(nodeType).keys():
-            data[nodeType][node] = {}
-
-        # get actual attribute
-        attrs = [
-            a.rsplit("[", 1)[0]
-            for a in cmds.listAttr(node, multi=True, string=attr) or []
-            if a.count("{}[".format(attr))
-        ]
-        full = attrs[0] if attrs else attr
-
-        # validate attribute
-        if not cmds.objExists(getPlug(node, full)):
-            continue
-
-        # populate data
-        data[nodeType][node][full] = ".".join([nodeType, node, attr])
-
-    return data
+    # return default
+    return []
