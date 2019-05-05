@@ -8,7 +8,7 @@ class BonesItem(base.LabelItem):
         self.setExpanded(False)
 
         # get bones
-        meshes = cmds.zQuery(solver, mesh=True, type="zBone")
+        meshes = cmds.zQuery(solver, mesh=True, type="zBone") or []
         meshes.sort()
 
         # add bones

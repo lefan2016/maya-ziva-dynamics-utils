@@ -2,7 +2,6 @@ import os
 import shiboken2
 from maya import cmds, OpenMayaUI
 from PySide2 import QtWidgets, QtCore
-from functools import wraps
 
 
 class Wait(object):
@@ -22,19 +21,34 @@ class Wait(object):
         cmds.waitCursor(state=False)
 
 
-def update(func):
+class BlockSignals(object):
     """
-    The update decorator will force the QApplication to process its event.
-    When having to be in the main thread to get information from the Maya
-    scene QThreads cannot be used.
+    This context will block the signals of the provided widgets.
+
+    .. highlight::
+        with BlockSignals(widgets):
+            # code
     """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        # call function
-        ret = func(*args, **kwargs)
-        processEvents()
-        return ret
-    return wrapper
+    def __init__(self, *widgets):
+        self._widgets = widgets
+
+    def __enter__(self):
+        for widget in self.widgets:
+            widget.blockSignals(True)
+
+    def __exit__(self, *exc_info):
+        for widget in self.widgets:
+            widget.blockSignals(False)
+
+    # ------------------------------------------------------------------------
+
+    @property
+    def widgets(self):
+        """
+        :return: Widgets
+        :rtype: list
+        """
+        return self._widgets
 
 
 def mayaWindow():
@@ -62,8 +76,3 @@ def getIconPath(name):
         iconPath = os.path.join(path, name)
         if os.path.exists(iconPath):
             return iconPath.replace("\\", "/")
-
-
-def processEvents():
-    app = QtWidgets.QApplication.instance()
-    app.processEvents()

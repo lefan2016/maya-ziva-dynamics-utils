@@ -1,4 +1,5 @@
 from PySide2 import QtWidgets, QtCore, QtGui
+from maya import cmds, OpenMaya
 from . import items, icons, widgets
 from zUtils import contexts, ui
 
@@ -6,6 +7,9 @@ from zUtils import contexts, ui
 class Manager(QtWidgets.QWidget):
     def __init__(self, parent):
         super(Manager, self).__init__(parent)
+
+        # variable
+        self._id = None
 
         # set as window
         self.setParent(parent)
@@ -21,6 +25,7 @@ class Manager(QtWidgets.QWidget):
 
         # create selector
         self.solver = widgets.SolverSelector(self)
+        self.solver.solverChanged.connect(self.update)
         layout.addWidget(self.solver)
 
         # create search
@@ -36,6 +41,34 @@ class Manager(QtWidgets.QWidget):
         self.tree.header().setVisible(False)
         layout.addWidget(self.tree)
 
+        # register callback
+        self.registerCallback()
+        self.update(self.solver.solver)
+
+    # ------------------------------------------------------------------------
+
+    def registerCallback(self):
+        """
+        Register callback that will update the ui every time the selection has
+        changed.
+        """
+        self._id = OpenMaya.MModelMessage.addCallback(
+            OpenMaya.MModelMessage.kActiveListModified,
+            self.selectionChanged
+        )
+
+    def removeCallback(self):
+        if not self._id:
+            return
+
+        OpenMaya.MMessage.removeCallback(self._id)
+
+    # ------------------------------------------------------------------------
+
+    def closeEvent(self, event):
+        self.removeCallback()
+        super(Manager, self).closeEvent(event)
+
     # ------------------------------------------------------------------------
 
     def getSearchableItems(self):
@@ -50,6 +83,37 @@ class Manager(QtWidgets.QWidget):
                 yield widget
 
             iter += 1
+
+    # ------------------------------------------------------------------------
+
+    def selectionChanged(self, *args):
+        """
+        Get the first item selected and compare it to the names of the
+        searchable objects. Only the first item is taken into account as the
+        ui jumps to the selection and populates its field.
+
+        :param args:
+        :return:
+        """
+        # get selection
+        sel = cmds.ls(sl=True) or []
+
+        # validate selection
+        if not sel:
+            return
+
+        # loop items
+        search = sel[0].lower()
+        for item in self.getSearchableItems():
+            if item.search.count(search):
+                # update item contents when empty
+                item.updateWhenEmpty()
+
+                # scroll to last child of selected item
+                child = item.child(item.childCount()-1)
+                self.tree.scrollToItem(child)
+
+                break
 
     # ------------------------------------------------------------------------
 
@@ -79,8 +143,7 @@ class Manager(QtWidgets.QWidget):
 
         # match widgets with search string
         matches = []
-        items = self.getSearchableItems()
-        for item in items:
+        for item in self.getSearchableItems():
             state = False if item.search.count(search) else True
             item.setHidden(state)
 
@@ -102,6 +165,9 @@ class Manager(QtWidgets.QWidget):
 
         :param str solver:
         """
+        # remove callback
+        self.removeCallback()
+
         # clear layout
         self.tree.clear()
 
@@ -116,13 +182,12 @@ class Manager(QtWidgets.QWidget):
         # do search
         self.filter(self.search.text)
 
+        # register callback
+        self.registerCallback()
+
 
 def show():
-    parent = ui.mayaWindow()
-    widget = Manager(parent)
-    widget.show()
-
     with ui.Wait():
-        ui.processEvents()
-        solver = widget.solver.solver
-        widget.update(solver)
+        parent = ui.mayaWindow()
+        widget = Manager(parent)
+        widget.show()

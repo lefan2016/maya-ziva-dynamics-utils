@@ -14,6 +14,7 @@ __all__ = [
 
 SELECT_ICON = ":/redSelect.png"
 CLOSE_ICON = ":/closeTabButton.png"
+REFRESH_ICON = ":/CN_refresh.png"
 MESH_ICON = ":/polyMesh.png"
 BRUSH_ICON = ":/brush.png"
 LINE_ICON = ":/pickLineComp.png"

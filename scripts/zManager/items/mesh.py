@@ -22,7 +22,6 @@ class MeshItem(base.TreeItem):
 
         # add widgets
         widget = widgets.Node(self.treeWidget(), node)
-        widget.button.released.connect(self.update)
         self.addWidget(widget)
         self.setIcon(0, QtGui.QIcon(icons.MESH_ICON))
 
@@ -83,3 +82,7 @@ class MeshItem(base.TreeItem):
 
         # add line of actions
         nodeTypes.ZivaNodeTypeItem(self, "zLineOfAction", lineOfActions)
+
+    def updateWhenEmpty(self):
+        if not self.childCount():
+            self.update()

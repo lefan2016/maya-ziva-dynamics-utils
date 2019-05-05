@@ -52,7 +52,7 @@ class TissuesItem(base.LabelItem):
         data = {}
 
         # get tissues
-        meshes = cmds.zQuery(solver, mesh=True, type="zTissue")
+        meshes = cmds.zQuery(solver, mesh=True, type="zTissue") or []
         meshes.sort()
 
         # filter tissues
