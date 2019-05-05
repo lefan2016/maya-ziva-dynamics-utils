@@ -606,7 +606,6 @@ class AnimationExport(Animation):
                 "-frameRange {} {}".format(start, end),
                 "-step {}".format(step),
                 " ".join(attrs),
-                "-wholeFrameGeo",
                 "-worldSpace",
                 "-writeVisibility",
                 "-eulerFilter",
