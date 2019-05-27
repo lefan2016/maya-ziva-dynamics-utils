@@ -1,5 +1,5 @@
 from PySide2 import QtWidgets, QtCore, QtGui
-from . import create, attach
+from . import create, attach, mirror
 from zUtils import contexts
 from zUtils.ui import mayaWindow, getIconPath
 
@@ -31,15 +31,24 @@ class LineOfActionUtils(QtWidgets.QWidget):
         cl.released.connect(self.clusterLineOfAction)
         layout.addWidget(cl)
 
+        mi = QtWidgets.QPushButton(self)
+        mi.setText("Mirror Line of Action")
+        mi.released.connect(self.mirrorLineOfAction)
+        layout.addWidget(mi)
+
     # ------------------------------------------------------------------------
 
     def createLineOfAction(self):
         with contexts.UndoChunk():
-            create.createLineOfAction()
+            create.createLineOfActionFromSelection()
 
     def clusterLineOfAction(self):
         with contexts.UndoChunk():
-            attach.clusterLineOfAction()
+            attach.clusterLineOfActionFromSelection()
+
+    def mirrorLineOfAction(self):
+        with contexts.UndoChunk():
+            mirror.mirrorLineOfActionFromSelection()
 
 
 def show():

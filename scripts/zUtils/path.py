@@ -1,4 +1,5 @@
 REPLACE = ["_mesh", "_bone", "_crv"]
+MIRROR = {"r_": "l_", "l_": "r_"}
 
 
 def getBase(path):
@@ -17,6 +18,26 @@ def getName(path):
     :rtype: str
     """
     return getBase(path).split(":")[-1]
+
+
+def getMirrorName(path):
+    """
+    :param str path:
+    :return: Mirrored name
+    :rtype: str
+    """
+    # get name
+    name = getName(path)
+
+    # get mirror string
+    replace = MIRROR.get(name[:2].lower())
+
+    # return parsed path if no replacement is found
+    if not replace:
+        return name
+
+    # replace side section of path
+    return replace + name[2:]
 
 
 def getNiceName(path, replace=REPLACE):
